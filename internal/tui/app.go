@@ -380,15 +380,29 @@ func (m Model) applyResult(resp *grail.Response) Model {
 }
 
 // populateTable picks a sensible column set from the records and pushes rows in.
+//
+// Order is significant: bubbles/table.SetColumns triggers UpdateViewport, which
+// iterates each row's cells and indexes m.cols[i]. If the new column count is
+// smaller than the previous row's cell count (e.g. an empty result follows a
+// populated one), it panics with "index out of range". Clearing rows before
+// changing columns avoids that.
 func (m *Model) populateTable() {
-	cols := pickColumns(m.records)
-	m.columns = cols
-
-	tableCols := make([]table.Column, len(cols))
 	innerWidth := m.width - 2
 	if innerWidth < 40 {
 		innerWidth = 40
 	}
+
+	if len(m.records) == 0 {
+		m.table.SetRows(nil)
+		m.table.SetColumns([]table.Column{{Title: "(no records)", Width: innerWidth}})
+		m.columns = nil
+		return
+	}
+
+	cols := pickColumns(m.records)
+	m.columns = cols
+
+	tableCols := make([]table.Column, len(cols))
 	widths := distributeWidths(cols, innerWidth)
 	for i, c := range cols {
 		tableCols[i] = table.Column{Title: c, Width: widths[i]}
@@ -403,6 +417,7 @@ func (m *Model) populateTable() {
 		rows[i] = row
 	}
 
+	m.table.SetRows(nil) // drop stale rows so SetColumns doesn't index into them
 	m.table.SetColumns(tableCols)
 	m.table.SetRows(rows)
 }
