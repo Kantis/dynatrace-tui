@@ -87,3 +87,21 @@ func renderRecordDetail(rec map[string]any) string {
 	}
 	return highlightJSON(string(pretty))
 }
+
+// highlightJSONCell returns s with chroma highlighting if it parses as a JSON
+// object or array; otherwise s is returned unchanged. Used for inline table
+// cells, where adding ANSI codes only makes sense if the value is JSON.
+func highlightJSONCell(s string) string {
+	t := strings.TrimSpace(s)
+	if len(t) < 2 {
+		return s
+	}
+	if t[0] != '{' && t[0] != '[' {
+		return s
+	}
+	var v any
+	if err := json.Unmarshal([]byte(t), &v); err != nil {
+		return s
+	}
+	return highlightJSON(s)
+}

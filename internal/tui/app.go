@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -41,7 +40,7 @@ type Model struct {
 	focus         focus
 
 	editor  Editor
-	table   table.Model
+	table   Table
 	detail  viewport.Model
 	spinner spinner.Model
 
@@ -72,21 +71,8 @@ func New(client *grail.Client) Model {
 	ed := NewEditor()
 	ed.SetValue("fetch logs, from:now()-15m | limit 50")
 
-	t := table.New(
-		table.WithColumns([]table.Column{{Title: "(no results)", Width: 40}}),
-		table.WithFocused(false),
-	)
-	ts := table.DefaultStyles()
-	ts.Header = ts.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(colorMuted).
-		BorderBottom(true).
-		Bold(true)
-	ts.Selected = ts.Selected.
-		Foreground(lipgloss.Color("231")).
-		Background(colorAccent).
-		Bold(true)
-	t.SetStyles(ts)
+	t := newTable()
+	t.SetColumns([]tableColumn{{Title: "(no results)", Width: 40}})
 
 	vp := viewport.New(0, 0)
 
@@ -394,7 +380,7 @@ func (m *Model) populateTable() {
 
 	if len(m.records) == 0 {
 		m.table.SetRows(nil)
-		m.table.SetColumns([]table.Column{{Title: "(no records)", Width: innerWidth}})
+		m.table.SetColumns([]tableColumn{{Title: "(no records)", Width: innerWidth}})
 		m.columns = nil
 		return
 	}
@@ -402,22 +388,21 @@ func (m *Model) populateTable() {
 	cols := pickColumns(m.records)
 	m.columns = cols
 
-	tableCols := make([]table.Column, len(cols))
+	tableCols := make([]tableColumn, len(cols))
 	widths := distributeWidths(cols, innerWidth)
 	for i, c := range cols {
-		tableCols[i] = table.Column{Title: c, Width: widths[i]}
+		tableCols[i] = tableColumn{Title: c, Width: widths[i]}
 	}
 
-	rows := make([]table.Row, len(m.records))
+	rows := make([]tableRow, len(m.records))
 	for i, rec := range m.records {
-		row := make(table.Row, len(cols))
+		row := make(tableRow, len(cols))
 		for j, c := range cols {
-			row[j] = stringCell(rec[c])
+			row[j] = highlightJSONCell(stringCell(rec[c]))
 		}
 		rows[i] = row
 	}
 
-	m.table.SetRows(nil) // drop stale rows so SetColumns doesn't index into them
 	m.table.SetColumns(tableCols)
 	m.table.SetRows(rows)
 }

@@ -89,6 +89,35 @@ func TestHighlightJSONAddsAnsiCodes(t *testing.T) {
 	}
 }
 
+func TestHighlightJSONCell_HighlightsObjectsAndArrays(t *testing.T) {
+	cases := []string{
+		`{"a":1}`,
+		`[1,2,3]`,
+		`  {"event":"login"}  `, // tolerates surrounding whitespace
+	}
+	for _, in := range cases {
+		got := highlightJSONCell(in)
+		if !strings.Contains(got, "\x1b[") {
+			t.Errorf("highlightJSONCell(%q) = %q, want ANSI codes", in, got)
+		}
+	}
+}
+
+func TestHighlightJSONCell_LeavesNonJSONAlone(t *testing.T) {
+	cases := []string{
+		"",
+		"plain log line",
+		"{not json",
+		`"123"`,    // JSON primitive — we only highlight objects/arrays
+		"INFO",
+	}
+	for _, in := range cases {
+		if got := highlightJSONCell(in); got != in {
+			t.Errorf("highlightJSONCell(%q) = %q, want unchanged", in, got)
+		}
+	}
+}
+
 func TestRenderRecordDetailIncludesExpandedAndAnsi(t *testing.T) {
 	rec := map[string]any{
 		"timestamp": "2026-04-28T12:00:00Z",
