@@ -733,7 +733,8 @@ func stringCell(v any) string {
 }
 
 // formatTimestampCell renders RFC3339 timestamps as `YYYY-MM-DD HH:MM:SS.mmm`
-// (millisecond precision, space separator). Non-timestamp strings pass through.
+// in the user's local timezone (millisecond precision, space separator).
+// Non-timestamp strings pass through.
 func formatTimestampCell(s string) string {
 	if s == "" {
 		return s
@@ -742,5 +743,5 @@ func formatTimestampCell(s string) string {
 	if err != nil {
 		return s
 	}
-	return t.Format("2006-01-02 15:04:05.000")
+	return t.Local().Format("2006-01-02 15:04:05.000")
 }
