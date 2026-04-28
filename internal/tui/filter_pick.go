@@ -244,7 +244,7 @@ func (m Model) insertFilterIntoEditor(fragment string) Model {
 	if body == "" {
 		m.editor.SetValue(fragment)
 	} else {
-		m.editor.SetValue(body + " | " + fragment)
+		m.editor.SetValue(body + "\n| " + fragment)
 	}
 	m.modal = modalNone
 	m.currentView = viewQuery
