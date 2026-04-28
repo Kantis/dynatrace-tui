@@ -75,11 +75,11 @@ func TestInsertFilterIntoEditor(t *testing.T) {
 	}{
 		{"empty editor, bare predicate", "", `x == 1`, `filter x == 1`},
 		{"empty editor, already has filter", "", `filter x == 1`, `filter x == 1`},
-		{"non-empty editor, bare predicate", `from:now()-15m`, `x == 1`, `from:now()-15m | filter x == 1`},
-		{"non-empty editor, already has filter", `from:now()-15m`, `filter x == 1`, `from:now()-15m | filter x == 1`},
-		{"trailing whitespace trimmed", `from:now()-15m   `, `x == 1`, `from:now()-15m | filter x == 1`},
-		{"trailing newline trimmed", "from:now()-15m\n", `x == 1`, `from:now()-15m | filter x == 1`},
-		{"fragment whitespace trimmed", `from:now()-15m`, `  x == 1  `, `from:now()-15m | filter x == 1`},
+		{"non-empty editor, bare predicate", `from:now()-15m`, `x == 1`, "from:now()-15m\n| filter x == 1"},
+		{"non-empty editor, already has filter", `from:now()-15m`, `filter x == 1`, "from:now()-15m\n| filter x == 1"},
+		{"trailing whitespace trimmed", `from:now()-15m   `, `x == 1`, "from:now()-15m\n| filter x == 1"},
+		{"trailing newline trimmed", "from:now()-15m\n", `x == 1`, "from:now()-15m\n| filter x == 1"},
+		{"fragment whitespace trimmed", `from:now()-15m`, `  x == 1  `, "from:now()-15m\n| filter x == 1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -152,7 +152,7 @@ func TestPickFilterNoPlaceholdersInsertsDirectly(t *testing.T) {
 	if m.modal != modalNone {
 		t.Errorf("expected modal to be closed, got %v", m.modal)
 	}
-	want := `from:now()-15m | filter loglevel == "ERROR"`
+	want := "from:now()-15m\n| filter loglevel == \"ERROR\""
 	if got := m.editor.Value(); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
