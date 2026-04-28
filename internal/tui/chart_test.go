@@ -87,6 +87,10 @@ func TestPrettyInterval(t *testing.T) {
 		{"nanoseconds float (1m)", float64(60_000_000_000), "1m"},
 		{"nanoseconds float (5s)", float64(5_000_000_000), "5s"},
 		{"nanoseconds float (1h)", float64(3_600_000_000_000), "1h"},
+		{"nanoseconds float (1d)", float64(86_400_000_000_000), "1d"},
+		{"nanoseconds string (2m)", "120000000000", "2m"},
+		{"nanoseconds string (1h)", "3600000000000", "1h"},
+		{"go duration string", "2m0s", "2m"},
 		{"empty string", "", "?"},
 		{"nil", nil, "?"},
 	}

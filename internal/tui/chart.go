@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -375,8 +376,9 @@ func shortTime(s string) string {
 }
 
 // prettyInterval renders the makeTimeseries interval field as a compact human
-// duration ("1h", "5m", "30s", "500ms"). Grail sometimes returns it as an
-// ISO-8601 string ("PT1M"), sometimes as a nanosecond number — both are handled.
+// duration ("1h", "5m", "30s", "500ms"). Grail returns it variously as an
+// ISO-8601 string ("PT1M"), a Go-style duration string ("2m0s"), a numeric
+// string of nanoseconds ("120000000000"), or a number — all handled here.
 func prettyInterval(v any) string {
 	switch x := v.(type) {
 	case nil:
@@ -387,6 +389,12 @@ func prettyInterval(v any) string {
 		}
 		if strings.HasPrefix(x, "PT") {
 			return strings.ToLower(x[2:])
+		}
+		if n, err := strconv.ParseInt(x, 10, 64); err == nil {
+			return formatDuration(time.Duration(n))
+		}
+		if d, err := time.ParseDuration(x); err == nil {
+			return formatDuration(d)
 		}
 		return x
 	case float64:
@@ -405,7 +413,10 @@ func formatDuration(d time.Duration) string {
 	if d <= 0 {
 		return "?"
 	}
+	const day = 24 * time.Hour
 	switch {
+	case d%day == 0:
+		return fmt.Sprintf("%dd", int64(d/day))
 	case d%time.Hour == 0:
 		return fmt.Sprintf("%dh", int64(d/time.Hour))
 	case d%time.Minute == 0:
