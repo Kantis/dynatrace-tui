@@ -23,8 +23,7 @@ const (
 )
 
 // chartBlinkInterval is how often the focused-endpoint highlight toggles.
-// Half-second feels alive without being distracting.
-const chartBlinkInterval = 500 * time.Millisecond
+const chartBlinkInterval = time.Second
 
 // chartBlinkMsg is dispatched on each blink interval to toggle the
 // focused-endpoint highlight.
