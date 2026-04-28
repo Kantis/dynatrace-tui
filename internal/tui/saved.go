@@ -197,8 +197,7 @@ func (m Model) updateSavedList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		sel := m.savedQueries[m.savedListIdx]
 		m.editor.SetValue(dql.StripFetch(sel.Query))
 		m.currentView = viewQuery
-		m.infoMsg = "loaded " + sel.Name
-		m.state = stateIdle
+		return m.runQuery()
 	case "d":
 		if len(m.savedQueries) == 0 {
 			return m, nil
@@ -411,7 +410,7 @@ func (m Model) savedStatusLine() string {
 	if m.savedMode == savedModeEditing {
 		right = "Tab switch · Ctrl-S save · Esc cancel"
 	} else {
-		right = "↑/↓ select · e edit · Enter load · d delete · Alt-1 query"
+		right = "↑/↓ select · e edit · Enter run · d delete · Alt-1 query"
 	}
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {

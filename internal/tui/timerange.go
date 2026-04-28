@@ -76,6 +76,10 @@ func (m Model) updateTimePresets(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.modal = modalNone
 		m.infoMsg = "applied timeframe " + tf
 		m.state = stateIdle
+		if strings.TrimSpace(m.editor.Value()) != "" {
+			model, cmd := m.runQuery()
+			return model.(Model), cmd
+		}
 		return m, nil
 	}
 	return m, nil
@@ -142,6 +146,10 @@ func (m Model) applyAbsoluteRange() (Model, tea.Cmd) {
 		m.infoMsg = "applied absolute from"
 	}
 	m.state = stateIdle
+	if strings.TrimSpace(m.editor.Value()) != "" {
+		model, cmd := m.runQuery()
+		return model.(Model), cmd
+	}
 	return m, nil
 }
 
