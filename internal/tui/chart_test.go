@@ -74,6 +74,46 @@ func TestRenderChartFallsBackToFirstNumericSeries(t *testing.T) {
 	}
 }
 
+func TestPrettyInterval(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"ISO hour", "PT1H", "1h"},
+		{"ISO minute", "PT5M", "5m"},
+		{"ISO seconds", "PT30S", "30s"},
+		{"nanoseconds float (1m)", float64(60_000_000_000), "1m"},
+		{"nanoseconds float (5s)", float64(5_000_000_000), "5s"},
+		{"nanoseconds float (1h)", float64(3_600_000_000_000), "1h"},
+		{"empty string", "", "?"},
+		{"nil", nil, "?"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := prettyInterval(tc.in)
+			if got != tc.want {
+				t.Errorf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRenderChartFormatsNumericInterval(t *testing.T) {
+	rec := map[string]any{
+		"count":    []any{1.0, 2.0, 3.0},
+		"interval": float64(60_000_000_000), // 1 minute as nanoseconds
+		"timeframe": map[string]any{
+			"start": "2026-04-28T12:00:00Z",
+			"end":   "2026-04-28T12:03:00Z",
+		},
+	}
+	out := renderChart(grail.Records{rec}, 40, 10)
+	if !strings.Contains(out, "interval 1m") {
+		t.Errorf("expected numeric nanosecond interval to render as 1m, got:\n%s", out)
+	}
+}
+
 func TestDownsample(t *testing.T) {
 	// 8 values into 4 columns → averages over pairs.
 	got := downsample([]float64{1, 1, 3, 3, 5, 5, 7, 7}, 4)

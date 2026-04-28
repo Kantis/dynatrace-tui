@@ -13,7 +13,8 @@ import (
 
 // makeTimeseries returns one record per series; the first is what we chart.
 // The numeric column is an array of length N (one per bucket); `timeframe` is
-// `{start, end}`; `interval` is an ISO-8601 duration like "PT1M".
+// `{start, end}`; `interval` is either an ISO-8601 string ("PT1M") or a
+// numeric nanosecond count.
 func renderChart(records grail.Records, width, height int) string {
 	if len(records) == 0 {
 		return chartHint("no time series data — try a query that returns rows")
@@ -25,7 +26,7 @@ func renderChart(records grail.Records, width, height int) string {
 		return chartHint("no numeric series in result")
 	}
 	start, end := pickTimeframe(rec)
-	interval, _ := rec["interval"].(string)
+	interval := rec["interval"]
 
 	if width < 20 {
 		width = 20
@@ -190,14 +191,48 @@ func shortTime(s string) string {
 	return s
 }
 
-func prettyInterval(iso string) string {
-	if strings.HasPrefix(iso, "PT") {
-		return strings.ToLower(iso[2:])
+// prettyInterval renders the makeTimeseries interval field as a compact human
+// duration ("1h", "5m", "30s", "500ms"). Grail sometimes returns it as an
+// ISO-8601 string ("PT1M"), sometimes as a nanosecond number — both are handled.
+func prettyInterval(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return "?"
+	case string:
+		if x == "" {
+			return "?"
+		}
+		if strings.HasPrefix(x, "PT") {
+			return strings.ToLower(x[2:])
+		}
+		return x
+	case float64:
+		return formatDuration(time.Duration(int64(x)))
+	case int64:
+		return formatDuration(time.Duration(x))
+	case int:
+		return formatDuration(time.Duration(x))
 	}
-	if iso == "" {
+	return "?"
+}
+
+// formatDuration prints d using the largest exact unit (h/m/s/ms). Falls back
+// to time.Duration's default String() form when no clean unit fits.
+func formatDuration(d time.Duration) string {
+	if d <= 0 {
 		return "?"
 	}
-	return iso
+	switch {
+	case d%time.Hour == 0:
+		return fmt.Sprintf("%dh", int64(d/time.Hour))
+	case d%time.Minute == 0:
+		return fmt.Sprintf("%dm", int64(d/time.Minute))
+	case d%time.Second == 0:
+		return fmt.Sprintf("%ds", int64(d/time.Second))
+	case d%time.Millisecond == 0:
+		return fmt.Sprintf("%dms", int64(d/time.Millisecond))
+	}
+	return d.String()
 }
 
 func fmtCount(v float64) string {
