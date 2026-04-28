@@ -98,6 +98,28 @@ func TestSubstituteTimeframe_RewritesAllNowClauses(t *testing.T) {
 	}
 }
 
+func TestSubstituteTimeframe_RewritesAbsoluteFromClause(t *testing.T) {
+	got, err := SubstituteTimeframe(`fetch logs, from:"2026-04-28T06:12:59Z", to:"2026-04-28T14:12:59Z"`, "15m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `fetch logs, from:now()-15m, to:"2026-04-28T14:12:59Z"`
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestSubstituteTimeframe_RewritesAbsoluteFromClauseWithoutTo(t *testing.T) {
+	got, err := SubstituteTimeframe(`fetch logs, from:"2026-04-28T06:12:59Z" | limit 5`, "1h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `fetch logs, from:now()-1h | limit 5`
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestSubstituteTimeframe_FallsBackToApplyTimeframe(t *testing.T) {
 	// No placeholder, no existing now() — should inject like ApplyTimeframe does.
 	got, err := SubstituteTimeframe("fetch logs | limit 5", "1h")

@@ -125,14 +125,17 @@ func Placeholders(dql string) []string {
 	return out
 }
 
-// SubstituteTimeframe applies the chosen preset to a DQL query. It tries three
+// SubstituteTimeframe applies the chosen preset to a DQL query. It tries
 // strategies in order:
 //
 //  1. If the query contains the literal `$timeframe` placeholder, replace
 //     every occurrence with `now()-<tf>`.
 //  2. Else if the query already has one or more `now()-<duration>` clauses
 //     (the typical from:now()-1h shape), swap them for `now()-<tf>`.
-//  3. Else fall back to ApplyTimeframe, which injects a `from:` clause into
+//  3. Else if the query has an existing `from:<anything>` clause (typically
+//     an absolute timestamp like `from:"2026-04-28T06:12:59Z"`), rewrite that
+//     clause to `from:now()-<tf>`. Any `to:` clause is left in place.
+//  4. Else fall back to ApplyTimeframe, which injects a `from:` clause into
 //     a `fetch <table>` query or appends a filter for non-fetch queries.
 func SubstituteTimeframe(query, tf string) (string, error) {
 	if !IsValidTimeframe(tf) {
@@ -144,6 +147,9 @@ func SubstituteTimeframe(query, tf string) (string, error) {
 	}
 	if timeframeRE.MatchString(query) {
 		return timeframeRE.ReplaceAllString(query, replacement), nil
+	}
+	if fromClauseRE.MatchString(query) {
+		return fromClauseRE.ReplaceAllString(query, "from:"+replacement), nil
 	}
 	return ApplyTimeframe(query, tf)
 }

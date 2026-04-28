@@ -89,11 +89,13 @@ type Model struct {
 	detailSearchActive  bool
 
 	// Modal state
-	modal          modalKind
-	timeRangeIdx   int
-	timeRangeFocus int // 0 = preset list, 1 = from input, 2 = to input
-	timeFromInput  textinput.Model
-	timeToInput    textinput.Model
+	modal           modalKind
+	timeRangeFocus  int // 0 = From column, 1 = To column
+	timeFromIdx     int // selected quick-pick row in From column
+	timeToIdx       int // selected quick-pick row in To column
+	timeFromInput   textinput.Model
+	timeToInput     textinput.Model
+	timeRangeOpened time.Time // captured at modal open; used for "now"/"start of hour" picks and for resolving relatives during nudging
 	saveInput      textinput.Model
 	savedQueries   []SavedQuery
 	savedListIdx   int
@@ -269,11 +271,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "ctrl+t":
 		m.modal = modalTimeRange
-		m.timeRangeIdx = 0
+		m.timeRangeOpened = time.Now()
 		m.timeRangeFocus = 0
-		m.timeFromInput = newTimeInput("e.g. 2026-04-28 09:00")
-		m.timeToInput = newTimeInput("e.g. 2026-04-28 17:00 (empty = now)")
-		return m, nil
+		m.timeFromIdx = 0
+		m.timeToIdx = 0
+		m.timeFromInput = newTimeInput("")
+		m.timeFromInput.SetValue("now()-15m")
+		m.timeToInput = newTimeInput("(empty = open-ended)")
+		m.refreshTimeFocus()
+		return m, textinput.Blink
 	case "ctrl+s":
 		m.modal = modalSaveQuery
 		m.saveInput = newSaveInput("")
