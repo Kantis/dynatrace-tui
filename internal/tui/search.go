@@ -10,13 +10,20 @@ import (
 )
 
 // setDetailContent updates the viewport and remembers the raw content so the
-// `/` search can scan it without going through the rendered viewport view.
+// `/` search can scan it without going through the rendered viewport view. If
+// a search query is still active (e.g. after a window resize re-renders the
+// detail), matches are recomputed and the visible content gets highlighted.
 func (m *Model) setDetailContent(s string) {
 	m.detailRawContent = s
-	m.detail.SetContent(s)
-	// New content invalidates the previous match list.
-	m.detailSearchMatches = nil
+	rendered := s
+	if q := m.detailSearchQuery; q != "" {
+		m.detailSearchMatches = findDetailMatches(s, q)
+		rendered = highlightDetailMatches(s, q)
+	} else {
+		m.detailSearchMatches = nil
+	}
 	m.detailSearchIdx = 0
+	m.detail.SetContent(rendered)
 }
 
 func newDetailSearchInput() textinput.Model {
@@ -53,6 +60,7 @@ func (m Model) updateDetailSearchInput(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.detailSearchQuery = query
 		m.detailSearchMatches = findDetailMatches(m.detailRawContent, query)
 		m.detailSearchIdx = 0
+		m.detail.SetContent(highlightDetailMatches(m.detailRawContent, query))
 		if len(m.detailSearchMatches) > 0 {
 			m.scrollDetailToMatch(0)
 		}
@@ -112,6 +120,131 @@ func findDetailMatches(content, query string) []int {
 		}
 	}
 	return out
+}
+
+// SGR codes used to wrap each match. Yellow background + black foreground is
+// the conventional `/`-search highlight. The codes are emitted twice: once at
+// the start of the match, and again after any inline ANSI sequence within the
+// match — chroma's per-token resets would otherwise drop the background
+// mid-match. Close uses a full reset since we don't track chroma's prior style.
+const (
+	matchHighlightOpen  = "\x1b[48;5;226;30m"
+	matchHighlightClose = "\x1b[0m"
+)
+
+// highlightDetailMatches returns content with each occurrence of query wrapped
+// in ANSI background-highlight codes. Search runs on the ANSI-stripped form so
+// the chroma highlighting in content doesn't fragment matches.
+func highlightDetailMatches(content, query string) string {
+	if query == "" || content == "" {
+		return content
+	}
+	var out strings.Builder
+	out.Grow(len(content) + 32)
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		out.WriteString(highlightLineMatches(line, query))
+		if i < len(lines)-1 {
+			out.WriteByte('\n')
+		}
+	}
+	return out.String()
+}
+
+// highlightLineMatches injects highlight codes around every occurrence of
+// query in line. ANSI sequences are passed through unchanged; whenever a
+// match contains an inline escape, the highlight is re-asserted afterward so
+// chroma's resets don't drop it.
+func highlightLineMatches(line, query string) string {
+	if !strings.Contains(ansi.Strip(line), query) {
+		return line
+	}
+
+	type segment struct {
+		text string
+		ansi bool
+	}
+	var segs []segment
+	for i := 0; i < len(line); {
+		if line[i] == 0x1b && i+1 < len(line) && line[i+1] == '[' {
+			j := i + 2
+			for j < len(line) && !isCSIFinal(line[j]) {
+				j++
+			}
+			if j < len(line) {
+				j++
+			}
+			segs = append(segs, segment{line[i:j], true})
+			i = j
+			continue
+		}
+		start := i
+		for i < len(line) && line[i] != 0x1b {
+			i++
+		}
+		segs = append(segs, segment{line[start:i], false})
+	}
+
+	var plainBuf strings.Builder
+	for _, s := range segs {
+		if !s.ansi {
+			plainBuf.WriteString(s.text)
+		}
+	}
+	plain := plainBuf.String()
+
+	type span struct{ start, end int }
+	var matches []span
+	cursor := 0
+	for cursor <= len(plain) {
+		idx := strings.Index(plain[cursor:], query)
+		if idx < 0 {
+			break
+		}
+		s := cursor + idx
+		e := s + len(query)
+		matches = append(matches, span{s, e})
+		cursor = e
+	}
+	if len(matches) == 0 {
+		return line
+	}
+
+	var b strings.Builder
+	b.Grow(len(line) + len(matches)*16)
+	plainCursor := 0
+	matchI := 0
+	inMatch := false
+	for _, s := range segs {
+		if s.ansi {
+			b.WriteString(s.text)
+			if inMatch {
+				b.WriteString(matchHighlightOpen)
+			}
+			continue
+		}
+		for k := 0; k < len(s.text); k++ {
+			if !inMatch && matchI < len(matches) && plainCursor == matches[matchI].start {
+				b.WriteString(matchHighlightOpen)
+				inMatch = true
+			}
+			b.WriteByte(s.text[k])
+			plainCursor++
+			if inMatch && plainCursor == matches[matchI].end {
+				b.WriteString(matchHighlightClose)
+				inMatch = false
+				matchI++
+			}
+		}
+	}
+	if inMatch {
+		b.WriteString(matchHighlightClose)
+	}
+	return b.String()
+}
+
+func isCSIFinal(b byte) bool {
+	return b >= 0x40 && b <= 0x7e
 }
 
 // detailSearchStatus returns the right-aligned status fragment shown when a
