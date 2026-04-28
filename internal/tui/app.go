@@ -237,7 +237,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.updateExport(msg)
 		case modalSwitchEnv:
 			return m.updateSwitchEnv(msg)
+		case modalHelp:
+			next, cmd := m.updateHelp(msg)
+			return next, cmd
 		}
+	}
+
+	// `?` opens the shortcut legend. Suppressed when the editor is in
+	// insert mode so the literal character can be typed into a query.
+	if msg.String() == "?" && !(m.focus == focusEditor && m.editor.Mode() == modeInsert) {
+		m.modal = modalHelp
+		return m, nil
 	}
 
 	switch msg.String() {
@@ -650,6 +660,8 @@ func (m Model) View() string {
 			return m.viewExport()
 		case modalSwitchEnv:
 			return m.viewSwitchEnv()
+		case modalHelp:
+			return m.viewHelp()
 		}
 	}
 
@@ -718,7 +730,7 @@ func (m Model) statusLine() string {
 			left = okText.Render(m.infoMsg)
 		}
 	}
-	right := "Alt-Enter run · Ctrl-G chart · Alt-1/2 view · q quit"
+	right := "Alt-Enter run · Ctrl-G chart · Alt-1/2 view · ? help · q quit"
 	if m.focus == focusDetail {
 		if s := m.detailSearchStatus(); s != "" {
 			right = s
