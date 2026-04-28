@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/kantis/dynatrace-tui/internal/dql"
 	"github.com/kantis/dynatrace-tui/internal/grail"
 )
 
@@ -73,7 +74,7 @@ type Model struct {
 
 func New(client *grail.Client) Model {
 	ed := NewEditor()
-	ed.SetValue("fetch logs, from:now()-15m | limit 50")
+	ed.SetValue("from:now()-15m")
 
 	t := table.New(
 		table.WithColumns([]table.Column{{Title: "(no results)", Width: 40}}),
@@ -312,12 +313,13 @@ func (m Model) cycleFocus(reverse bool) Model {
 }
 
 func (m Model) runQuery() (tea.Model, tea.Cmd) {
-	dql := strings.TrimSpace(m.editor.Value())
-	if dql == "" {
+	body := strings.TrimSpace(m.editor.Value())
+	if body == "" {
 		m.errMsg = "query is empty"
 		m.state = stateError
 		return m, nil
 	}
+	full := dql.PrependFetch(body)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
@@ -328,7 +330,7 @@ func (m Model) runQuery() (tea.Model, tea.Cmd) {
 	m.rowCount = 0
 	m.applyLayout()
 
-	return m, tea.Batch(executeCmd(ctx, m.client, dql), m.spinner.Tick)
+	return m, tea.Batch(executeCmd(ctx, m.client, full), m.spinner.Tick)
 }
 
 func (m Model) cancelRunning() Model {
@@ -495,7 +497,7 @@ func (m Model) View() string {
 
 	var sections []string
 
-	editorTitle := fmt.Sprintf("Query [%s]", m.editor.Mode())
+	editorTitle := fmt.Sprintf("Query [%s] · auto-prepends fetch logs,", m.editor.Mode())
 	editorBorder := paneBorder
 	editorTitleStyle := paneTitle
 	if m.focus == focusEditor {

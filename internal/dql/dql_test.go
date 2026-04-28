@@ -210,6 +210,52 @@ func TestSubstituteAbsolute_AddsToWhenInjectingBoth(t *testing.T) {
 	}
 }
 
+func TestPrependFetch(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", "fetch logs"},
+		{"  ", "fetch logs"},
+		{"from:now()-1h", "fetch logs, from:now()-1h"},
+		{"| filter level == \"ERROR\"", "fetch logs | filter level == \"ERROR\""},
+		{"fetch events", "fetch events"},
+		{"fetch logs, from:now()-1h", "fetch logs, from:now()-1h"},
+	}
+	for _, tc := range cases {
+		if got := PrependFetch(tc.in); got != tc.want {
+			t.Errorf("PrependFetch(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestStripFetch(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"fetch logs, from:now()-1h", "from:now()-1h"},
+		{"fetch logs | filter level == \"ERROR\"", "| filter level == \"ERROR\""},
+		{"fetch logs", ""},
+		{"fetch events, from:now()-1h", "fetch events, from:now()-1h"},
+		{"timeseries count() | limit 5", "timeseries count() | limit 5"},
+	}
+	for _, tc := range cases {
+		if got := StripFetch(tc.in); got != tc.want {
+			t.Errorf("StripFetch(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestPrependStripRoundTrip(t *testing.T) {
+	bodies := []string{
+		"from:now()-1h",
+		"| filter level == \"ERROR\"",
+		"from:now()-1h | filter k8s.namespace.name == \"casino\"",
+	}
+	for _, body := range bodies {
+		full := PrependFetch(body)
+		round := StripFetch(full)
+		if round != body {
+			t.Errorf("round-trip %q → %q → %q", body, full, round)
+		}
+	}
+}
+
 func mustTime(t *testing.T, s string) time.Time {
 	t.Helper()
 	v, err := time.Parse(time.RFC3339, s)

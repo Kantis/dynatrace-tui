@@ -104,6 +104,42 @@ func SubstituteTimeframe(query, tf string) (string, error) {
 	return ApplyTimeframe(query, tf)
 }
 
+// PrependFetch turns the editor's user-typed body into a full DQL query by
+// adding `fetch logs` (and the right separator) to the front. If the body
+// already starts with a `fetch ...` clause it's returned unchanged so users
+// can still query non-logs tables explicitly.
+func PrependFetch(body string) string {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return "fetch logs"
+	}
+	if strings.HasPrefix(trimmed, "fetch ") {
+		return trimmed
+	}
+	if strings.HasPrefix(trimmed, "|") {
+		return "fetch logs " + trimmed
+	}
+	return "fetch logs, " + trimmed
+}
+
+// StripFetch is the inverse of PrependFetch: removes a leading `fetch logs[,]`
+// so a stored or imported query becomes the body the editor displays. Queries
+// that don't start with `fetch logs` pass through unchanged.
+func StripFetch(s string) string {
+	trimmed := strings.TrimSpace(s)
+	switch {
+	case strings.HasPrefix(trimmed, "fetch logs, "):
+		return trimmed[len("fetch logs, "):]
+	case strings.HasPrefix(trimmed, "fetch logs |"):
+		return trimmed[len("fetch logs "):]
+	case strings.HasPrefix(trimmed, "fetch logs ,"):
+		return strings.TrimLeft(trimmed[len("fetch logs ,"):], " ")
+	case trimmed == "fetch logs":
+		return ""
+	}
+	return trimmed
+}
+
 // Substitute replaces `$name` occurrences with the provided values.
 func Substitute(dql string, values map[string]string) string {
 	return placeholderRE.ReplaceAllStringFunc(dql, func(m string) string {

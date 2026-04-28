@@ -10,6 +10,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"gopkg.in/yaml.v3"
+
+	"github.com/kantis/dynatrace-tui/internal/dql"
 )
 
 type SavedQuery struct {
@@ -150,7 +152,7 @@ func (m Model) updateLoadQuery(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		sel := m.savedQueries[m.savedListIdx]
-		m.editor.SetValue(sel.Query)
+		m.editor.SetValue(dql.StripFetch(sel.Query))
 		m.modal = modalNone
 		m.infoMsg = "loaded " + sel.Name
 		m.state = stateIdle

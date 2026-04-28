@@ -65,14 +65,14 @@ func (m Model) updateTimePresets(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	case "enter":
 		tf := dql.ValidTimeframes[m.timeRangeIdx]
-		newDQL, err := dql.SubstituteTimeframe(m.editor.Value(), tf)
+		newDQL, err := dql.SubstituteTimeframe(dql.PrependFetch(m.editor.Value()), tf)
 		if err != nil {
 			m.errMsg = err.Error()
 			m.state = stateError
 			m.modal = modalNone
 			return m, nil
 		}
-		m.editor.SetValue(newDQL)
+		m.editor.SetValue(dql.StripFetch(newDQL))
 		m.modal = modalNone
 		m.infoMsg = "applied timeframe " + tf
 		m.state = stateIdle
@@ -133,8 +133,8 @@ func (m Model) applyAbsoluteRange() (Model, tea.Cmd) {
 		}
 	}
 
-	newDQL := dql.SubstituteAbsolute(m.editor.Value(), fromT, toT, hasTo)
-	m.editor.SetValue(newDQL)
+	newDQL := dql.SubstituteAbsolute(dql.PrependFetch(m.editor.Value()), fromT, toT, hasTo)
+	m.editor.SetValue(dql.StripFetch(newDQL))
 	m.modal = modalNone
 	if hasTo {
 		m.infoMsg = "applied absolute range"

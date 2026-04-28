@@ -110,7 +110,7 @@ func NewEditor() Editor {
 	ta.ShowLineNumbers = true
 	ta.CharLimit = 0
 	ta.SetHeight(8)
-	ta.Placeholder = "fetch logs, from:now()-15m | limit 50"
+	ta.Placeholder = "from:now()-15m | filter loglevel == \"ERROR\""
 	ta.Focus()
 	return Editor{ta: ta, mode: modeInsert}
 }

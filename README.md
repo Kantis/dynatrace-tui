@@ -72,6 +72,10 @@ during a running query calls `query:cancel` server-side before exiting.
 Run `dttui` with no arguments. The screen has an editor pane on top and a
 results pane below.
 
+The editor auto-prepends `fetch logs,` so you only type the body — e.g.
+`from:now()-15m | filter loglevel == "ERROR"`. Lines that already start
+with `fetch ...` (e.g. `fetch events`) or with `|` are handled correctly.
+
 | Key | Action |
 | --- | --- |
 | `Alt-Enter` / `Ctrl-Enter`* | Run the current query |
