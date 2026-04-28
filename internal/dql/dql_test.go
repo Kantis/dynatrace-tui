@@ -272,3 +272,63 @@ func TestSubstituteUnknownLeftAlone(t *testing.T) {
 		t.Errorf("Substitute got %q want %q", got, want)
 	}
 }
+
+func TestMakeTimeseries(t *testing.T) {
+	cases := []struct {
+		name         string
+		dql          string
+		wantQuery    string
+		wantInterval string
+	}{
+		{
+			"basic with 1h timeframe picks 1m interval",
+			"fetch logs, from:now()-1h",
+			"fetch logs, from:now()-1h | makeTimeseries count=count(), interval:1m",
+			"1m",
+		},
+		{
+			"strips trailing limit",
+			"fetch logs, from:now()-1h | filter loglevel==\"ERROR\" | limit 50",
+			"fetch logs, from:now()-1h | filter loglevel==\"ERROR\" | makeTimeseries count=count(), interval:1m",
+			"1m",
+		},
+		{
+			"24h timeframe → 15m interval",
+			"fetch logs, from:now()-24h | filter status==\"ERROR\"",
+			"fetch logs, from:now()-24h | filter status==\"ERROR\" | makeTimeseries count=count(), interval:15m",
+			"15m",
+		},
+		{
+			"15m timeframe → 30s interval",
+			"fetch logs, from:now()-15m",
+			"fetch logs, from:now()-15m | makeTimeseries count=count(), interval:30s",
+			"30s",
+		},
+		{
+			"no timeframe falls back to 1m",
+			"fetch logs",
+			"fetch logs | makeTimeseries count=count(), interval:1m",
+			"1m",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, interval, err := MakeTimeseries(tc.dql)
+			if err != nil {
+				t.Fatalf("MakeTimeseries: %v", err)
+			}
+			if got != tc.wantQuery {
+				t.Errorf("query: got %q want %q", got, tc.wantQuery)
+			}
+			if interval != tc.wantInterval {
+				t.Errorf("interval: got %q want %q", interval, tc.wantInterval)
+			}
+		})
+	}
+}
+
+func TestMakeTimeseriesEmpty(t *testing.T) {
+	if _, _, err := MakeTimeseries("   "); err == nil {
+		t.Fatal("expected error for empty query")
+	}
+}

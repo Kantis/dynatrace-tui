@@ -35,6 +35,13 @@ const (
 	stateError
 )
 
+type detailKind int
+
+const (
+	detailRecord detailKind = iota
+	detailChart
+)
+
 type Model struct {
 	client *grail.Client
 
@@ -56,6 +63,10 @@ type Model struct {
 
 	queryToken string
 	cancel     context.CancelFunc
+
+	pendingChart  bool
+	detailKind    detailKind
+	chartRecords  grail.Records
 
 	// Modal state
 	modal          modalKind
@@ -107,7 +118,7 @@ func New(client *grail.Client) Model {
 		detail:       vp,
 		spinner:      sp,
 		state:        stateIdle,
-		infoMsg:      "ready — Alt-Enter / Ctrl-Enter run · Ctrl-T timerange · Ctrl-O saved · Ctrl-S save · Ctrl-P params · Ctrl-E export · q quit",
+		infoMsg:      "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Ctrl-O saved · Ctrl-S save · Ctrl-P params · Ctrl-E export · q quit",
 		savedQueries: saved,
 	}
 }
@@ -210,6 +221,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Vim-style redo. Works in either mode since it's intercepted globally.
 		if m.focus == focusEditor {
 			m.editor.Redo()
+		}
+		return m, nil
+	case "ctrl+g":
+		if m.state != stateRunning {
+			return m.runChart()
 		}
 		return m, nil
 	case "ctrl+t":
@@ -319,18 +335,38 @@ func (m Model) runQuery() (tea.Model, tea.Cmd) {
 		m.state = stateError
 		return m, nil
 	}
-	full := dql.PrependFetch(body)
+	m.pendingChart = false
+	return m.startQuery(dql.PrependFetch(body), "running…")
+}
 
+func (m Model) runChart() (tea.Model, tea.Cmd) {
+	body := strings.TrimSpace(m.editor.Value())
+	if body == "" {
+		m.errMsg = "query is empty"
+		m.state = stateError
+		return m, nil
+	}
+	chartDQL, interval, err := dql.MakeTimeseries(dql.PrependFetch(body))
+	if err != nil {
+		m.errMsg = err.Error()
+		m.state = stateError
+		return m, nil
+	}
+	m.pendingChart = true
+	return m.startQuery(chartDQL, "charting (interval "+interval+")…")
+}
+
+func (m Model) startQuery(query, infoMsg string) (tea.Model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.state = stateRunning
 	m.errMsg = ""
-	m.infoMsg = "running…"
+	m.infoMsg = infoMsg
 	m.records = nil
 	m.rowCount = 0
 	m.applyLayout()
 
-	return m, tea.Batch(executeCmd(ctx, m.client, full), m.spinner.Tick)
+	return m, tea.Batch(executeCmd(ctx, m.client, query), m.spinner.Tick)
 }
 
 func (m Model) cancelRunning() Model {
@@ -359,13 +395,29 @@ func (m Model) applyResult(resp *grail.Response) Model {
 	}
 	switch resp.State {
 	case grail.StateSucceeded:
-		m.records = nil
+		records := grail.Records{}
 		if resp.Result != nil {
-			m.records = resp.Result.Records
+			records = resp.Result.Records
 		}
-		m.rowCount = len(m.records)
 		m.state = stateIdle
 		m.errMsg = ""
+		if m.pendingChart {
+			m.pendingChart = false
+			m.chartRecords = records
+			m.records = nil
+			m.rowCount = 0
+			m.populateTable()
+			m.detailKind = detailChart
+			m.detail.SetContent(renderChart(records, m.detail.Width, m.detail.Height))
+			m.detail.GotoTop()
+			m.focus = focusDetail
+			m.editor.Blur()
+			m.table.Blur()
+			m.infoMsg = "chart ready (Esc to close)"
+			return m
+		}
+		m.records = records
+		m.rowCount = len(m.records)
 		m.infoMsg = fmt.Sprintf("%d records", m.rowCount)
 		m.populateTable()
 		if m.rowCount > 0 {
@@ -439,6 +491,7 @@ func (m *Model) openDetail() {
 		cur = 0
 	}
 	rec := m.records[cur]
+	m.detailKind = detailRecord
 	m.detail.SetContent(renderRecordDetail(rec))
 	m.detail.GotoTop()
 	m.focus = focusDetail
@@ -470,6 +523,9 @@ func (m *Model) applyLayout() {
 	m.detail.Height = resultsH
 	if len(m.records) > 0 {
 		m.populateTable()
+	}
+	if m.detailKind == detailChart && len(m.chartRecords) > 0 {
+		m.detail.SetContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height))
 	}
 }
 
@@ -508,7 +564,11 @@ func (m Model) View() string {
 	sections = append(sections, editorBorder.Render(m.editor.View()))
 
 	if m.focus == focusDetail {
-		sections = append(sections, paneTitleFocused.Render("Detail (Esc to close)"))
+		title := "Detail (Esc to close)"
+		if m.detailKind == detailChart {
+			title = "Chart (Esc to close)"
+		}
+		sections = append(sections, paneTitleFocused.Render(title))
 		sections = append(sections, paneBorderFocused.Render(m.detail.View()))
 	} else {
 		title := "Results"
@@ -542,7 +602,7 @@ func (m Model) statusLine() string {
 			left = okText.Render(m.infoMsg)
 		}
 	}
-	right := "Alt-Enter run · u/Ctrl-R undo/redo · Tab switch · q quit"
+	right := "Alt-Enter run · Ctrl-G chart · Tab switch · q quit"
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
 		gap = 1

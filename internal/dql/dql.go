@@ -57,6 +57,50 @@ func ApplyTimeframe(dql, tf string) (string, error) {
 	return trimmed + " | filter timestamp > now()-" + tf, nil
 }
 
+var fromTimeframeRE = regexp.MustCompile(`from:\s*now\(\)\s*-\s*(\d+[smhd])`)
+var trailingLimitRE = regexp.MustCompile(`(?i)\|\s*limit\s+\d+\s*$`)
+
+// MakeTimeseries wraps a query with `| makeTimeseries count=count(), interval:X`
+// so the result is a count-over-time series suitable for charting. A trailing
+// `| limit N` is dropped, since limiting the input rows would distort the
+// counts. The chosen interval is derived from the query's `from:now()-<tf>`
+// clause; if no timeframe is present, a 1m fallback is used.
+func MakeTimeseries(query string) (string, string, error) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return "", "", fmt.Errorf("query is empty")
+	}
+	q = trailingLimitRE.ReplaceAllString(q, "")
+	q = strings.TrimRight(q, " \t\n|")
+	interval := IntervalFor(extractTimeframe(query))
+	return q + " | makeTimeseries count=count(), interval:" + interval, interval, nil
+}
+
+func extractTimeframe(q string) string {
+	m := fromTimeframeRE.FindStringSubmatch(q)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
+// IntervalFor returns a chart bucket size suitable for the given timeframe.
+// The aim is roughly 30-90 buckets, which fits comfortably on a wide terminal
+// and matches the granularity Grail will accept without complaining.
+func IntervalFor(tf string) string {
+	switch tf {
+	case "15m":
+		return "30s"
+	case "1h":
+		return "1m"
+	case "6h":
+		return "5m"
+	case "24h":
+		return "15m"
+	}
+	return "1m"
+}
+
 var placeholderRE = regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
 
 var reservedPlaceholders = map[string]bool{
