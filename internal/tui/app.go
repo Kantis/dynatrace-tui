@@ -75,9 +75,10 @@ type Model struct {
 	queryToken string
 	cancel     context.CancelFunc
 
-	pendingChart  bool
-	detailKind    detailKind
-	chartRecords  grail.Records
+	pendingChart   bool
+	detailKind     detailKind
+	chartRecords   grail.Records
+	detailPendingG bool // vim `gg` in the detail viewport
 
 	// Modal state
 	modal          modalKind
@@ -309,6 +310,30 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.state == stateRunning {
 			return m.cancelRunning(), nil
 		}
+	}
+
+	// Detail viewport: vim-style nav and `q` to close instead of quitting.
+	if m.focus == focusDetail {
+		switch msg.String() {
+		case "q":
+			m.detailPendingG = false
+			m.focus = focusResults
+			return m, nil
+		case "G":
+			m.detailPendingG = false
+			m.detail.GotoBottom()
+			return m, nil
+		case "g":
+			if m.detailPendingG {
+				m.detailPendingG = false
+				m.detail.GotoTop()
+				return m, nil
+			}
+			m.detailPendingG = true
+			return m, nil
+		}
+		// Any other key cancels a pending `g`.
+		m.detailPendingG = false
 	}
 
 	// Quit on q only if not editing text
