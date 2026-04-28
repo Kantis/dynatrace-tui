@@ -431,8 +431,7 @@ func (m *Model) openDetail() {
 		cur = 0
 	}
 	rec := m.records[cur]
-	pretty, _ := json.MarshalIndent(rec, "", "  ")
-	m.detail.SetContent(string(pretty))
+	m.detail.SetContent(renderRecordDetail(rec))
 	m.detail.GotoTop()
 	m.focus = focusDetail
 }
