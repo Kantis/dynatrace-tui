@@ -98,7 +98,9 @@ type Model struct {
 	timeRangeOpened time.Time // captured at modal open; used for "now"/"start of hour" picks and for resolving relatives during nudging
 	saveInput      textinput.Model
 	savedQueries   []SavedQuery
+	savedDefault   string // name of the saved search auto-loaded on startup
 	savedListIdx   int
+	pendingAutoRun bool // run the editor body on first event after startup
 	// Saved searches view (Alt-2)
 	savedMode             savedSearchesMode
 	savedEditNameInput    textinput.Model
@@ -124,7 +126,7 @@ func New(client *grail.Client, envName string, envNames []string, makeClient fun
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 
-	saved, _ := loadSavedQueries() // missing file → empty list
+	saved, defaultName, _ := loadSavedQueries() // missing file → empty list
 
 	// Pre-initialise the saved-search edit body so applyLayout's SetWidth/Height
 	// calls are safe even before the user enters edit mode (zero-value textarea
@@ -132,26 +134,55 @@ func New(client *grail.Client, envName string, envNames []string, makeClient fun
 	editBody := NewEditor()
 	editBody.Blur()
 
+	infoMsg := "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Alt-2 saved · Ctrl-S save · Ctrl-P params · Ctrl-X export · Ctrl-E env · q quit"
+	autoRun := false
+	// If a default saved search exists and resolves to a non-empty body,
+	// preload the editor with it and queue an auto-run for after Init().
+	if defaultName != "" {
+		for _, q := range saved {
+			if q.Name == defaultName {
+				body := dql.StripFetch(q.Query)
+				if strings.TrimSpace(body) != "" {
+					ed.SetValue(body)
+					autoRun = true
+					infoMsg = "running default: " + defaultName
+				}
+				break
+			}
+		}
+	}
+
 	return Model{
-		client:        client,
-		envName:       envName,
-		envNames:      envNames,
-		makeClient:    makeClient,
-		focus:         focusEditor,
-		currentView:   viewQuery,
-		editor:        ed,
-		table:         t,
-		detail:        vp,
-		spinner:       sp,
-		state:         stateIdle,
-		infoMsg:       "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Alt-2 saved · Ctrl-S save · Ctrl-P params · Ctrl-X export · Ctrl-E env · q quit",
-		savedQueries:  saved,
-		savedEditBody: editBody,
+		client:         client,
+		envName:        envName,
+		envNames:       envNames,
+		makeClient:     makeClient,
+		focus:          focusEditor,
+		currentView:    viewQuery,
+		editor:         ed,
+		table:          t,
+		detail:         vp,
+		spinner:        sp,
+		state:          stateIdle,
+		infoMsg:        infoMsg,
+		savedQueries:   saved,
+		savedDefault:   defaultName,
+		savedEditBody:  editBody,
+		pendingAutoRun: autoRun,
 	}
 }
 
+// autoRunMsg is dispatched once from Init() when a default saved search
+// is configured, so Update() can call runQuery() (which mutates the
+// model and needs to issue a tea.Cmd).
+type autoRunMsg struct{}
+
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink)
+	cmds := []tea.Cmd{textarea.Blink}
+	if m.pendingAutoRun {
+		cmds = append(cmds, func() tea.Msg { return autoRunMsg{} })
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -203,6 +234,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case cancelDoneMsg:
 		// no-op; UI already updated when ctx was cancelled
 		return m, nil
+
+	case autoRunMsg:
+		if !m.pendingAutoRun {
+			return m, nil
+		}
+		m.pendingAutoRun = false
+		return m.runQuery()
 	}
 
 	// Default: route to focused widget

@@ -19,7 +19,13 @@ type SavedQuery struct {
 	Query string `yaml:"query"`
 }
 
+// savedFile is the on-disk shape of searches.yaml.
+//
+// `default` (optional) names the entry to auto-load and run when the TUI
+// starts. An empty/missing value means "no default — start with the
+// usual `from:now()-15m` editor body".
 type savedFile struct {
+	Default  string       `yaml:"default,omitempty"`
 	Searches []SavedQuery `yaml:"searches"`
 }
 
@@ -31,26 +37,43 @@ func savedQueriesPath() (string, error) {
 	return filepath.Join(home, ".config", "dynatrace-tui", "searches.yaml"), nil
 }
 
-func loadSavedQueries() ([]SavedQuery, error) {
+// loadSavedQueries returns the saved entries and the name of the default
+// (or "" if none). A missing file is treated as an empty list with no
+// default — first-run users see the usual placeholder.
+func loadSavedQueries() ([]SavedQuery, string, error) {
 	p, err := savedQueriesPath()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, "", nil
 		}
-		return nil, err
+		return nil, "", err
 	}
 	var f savedFile
 	if err := yaml.Unmarshal(data, &f); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return f.Searches, nil
+	// Drop a stale default (entry was deleted out-of-band) so callers
+	// can rely on `default` always pointing at a real entry.
+	if f.Default != "" {
+		found := false
+		for _, q := range f.Searches {
+			if q.Name == f.Default {
+				found = true
+				break
+			}
+		}
+		if !found {
+			f.Default = ""
+		}
+	}
+	return f.Searches, f.Default, nil
 }
 
-func writeSavedQueries(qs []SavedQuery) error {
+func writeSavedQueries(qs []SavedQuery, defaultName string) error {
 	p, err := savedQueriesPath()
 	if err != nil {
 		return err
@@ -58,7 +81,7 @@ func writeSavedQueries(qs []SavedQuery) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	data, err := yaml.Marshal(savedFile{Searches: qs})
+	data, err := yaml.Marshal(savedFile{Default: defaultName, Searches: qs})
 	if err != nil {
 		return err
 	}
@@ -106,7 +129,7 @@ func (m Model) updateSaveQuery(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if !updated {
 			m.savedQueries = append(m.savedQueries, SavedQuery{Name: name, Query: query})
 		}
-		if err := writeSavedQueries(m.savedQueries); err != nil {
+		if err := writeSavedQueries(m.savedQueries, m.savedDefault); err != nil {
 			m.errMsg = err.Error()
 			m.state = stateError
 		} else {
@@ -202,11 +225,32 @@ func (m Model) updateSavedList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.savedQueries) == 0 {
 			return m, nil
 		}
+		removed := m.savedQueries[m.savedListIdx].Name
 		m.savedQueries = append(m.savedQueries[:m.savedListIdx], m.savedQueries[m.savedListIdx+1:]...)
 		if m.savedListIdx >= len(m.savedQueries) && m.savedListIdx > 0 {
 			m.savedListIdx--
 		}
-		if err := writeSavedQueries(m.savedQueries); err != nil {
+		if m.savedDefault == removed {
+			m.savedDefault = ""
+		}
+		if err := writeSavedQueries(m.savedQueries, m.savedDefault); err != nil {
+			m.errMsg = err.Error()
+			m.state = stateError
+		}
+	case "*":
+		if len(m.savedQueries) == 0 {
+			return m, nil
+		}
+		sel := m.savedQueries[m.savedListIdx].Name
+		if m.savedDefault == sel {
+			m.savedDefault = ""
+			m.infoMsg = "default cleared"
+		} else {
+			m.savedDefault = sel
+			m.infoMsg = "default → " + sel
+		}
+		m.state = stateIdle
+		if err := writeSavedQueries(m.savedQueries, m.savedDefault); err != nil {
 			m.errMsg = err.Error()
 			m.state = stateError
 		}
@@ -277,7 +321,11 @@ func (m Model) updateSavedEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.savedQueries[m.savedListIdx] = SavedQuery{Name: name, Query: dql.PrependFetch(body)}
-		if err := writeSavedQueries(m.savedQueries); err != nil {
+		// Carry the default marker through a rename.
+		if m.savedDefault == m.savedEditOriginalName && name != m.savedEditOriginalName {
+			m.savedDefault = name
+		}
+		if err := writeSavedQueries(m.savedQueries, m.savedDefault); err != nil {
 			m.errMsg = err.Error()
 			m.state = stateError
 			return m, nil
@@ -341,21 +389,26 @@ func (m Model) viewSavedSearches() string {
 
 func (m Model) renderSavedList() string {
 	if len(m.savedQueries) == 0 {
-		return "  (none — Alt-1 to query view, Ctrl-S there to save the current query)"
+		return "    (none — Alt-1 to query view, Ctrl-S there to save the current query)"
 	}
 	var b strings.Builder
 	nameStyle := lipgloss.NewStyle().Bold(true)
+	defaultStyle := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 	for i, q := range m.savedQueries {
-		prefix := "  "
+		defaultMark := "  "
+		if q.Name == m.savedDefault {
+			defaultMark = defaultStyle.Render("★ ")
+		}
+		cursorMark := "  "
+		if i == m.savedListIdx {
+			cursorMark = "▶ "
+		}
 		querySnippet := truncate(q.Query, 60)
 		line := fmt.Sprintf("%s — %s", nameStyle.Render(q.Name), querySnippet)
-		if i == m.savedListIdx {
-			prefix = "▶ "
-			if m.savedMode == savedModeList {
-				line = lipgloss.NewStyle().Foreground(colorAccent).Render(line)
-			}
+		if i == m.savedListIdx && m.savedMode == savedModeList {
+			line = lipgloss.NewStyle().Foreground(colorAccent).Render(line)
 		}
-		b.WriteString(prefix + line + "\n")
+		b.WriteString(defaultMark + cursorMark + line + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -410,7 +463,7 @@ func (m Model) savedStatusLine() string {
 	if m.savedMode == savedModeEditing {
 		right = "Tab switch · Ctrl-S save · Esc cancel"
 	} else {
-		right = "↑/↓ select · e edit · Enter run · d delete · Alt-1 query"
+		right = "↑/↓ select · e edit · Enter run · * default · d delete · Alt-1 query"
 	}
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {

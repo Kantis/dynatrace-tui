@@ -159,8 +159,13 @@ preview of the selected query. From the list:
 | `↑` `↓` (or `j` `k`) | Move selection |
 | `Enter` | Load the selected query into the editor and switch back to the query view |
 | `e` | Edit the selected entry (name + body) in place |
+| `*` | Toggle the selected entry as the **default** — auto-loaded and run on startup. A `★` marker shows in the list. |
 | `d` | Delete the selected entry |
 | `Alt-1` | Switch back to the query view |
+
+The default is persisted as a top-level `default: <name>` field in
+`~/.config/dynatrace-tui/searches.yaml`. Deleting the default entry, or
+renaming it via `e`, updates the field accordingly.
 
 **Edit mode** — `Tab` switches between the **Name** input and the **Query**
 editor (which uses the same vim-style modal editing as the main editor).

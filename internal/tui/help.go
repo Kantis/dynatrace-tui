@@ -62,6 +62,13 @@ var helpSections = []helpSection{
 		{"gg / G", "top / bottom"},
 		{"q / Esc", "close detail"},
 	}},
+	{"Saved searches view (Alt-2)", []helpEntry{
+		{"↑ / ↓ (or k / j)", "move cursor"},
+		{"Enter", "load and run"},
+		{"e", "edit name + body in place"},
+		{"*", "toggle as default (auto-run on startup)"},
+		{"d", "delete entry"},
+	}},
 }
 
 func (m Model) updateHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -98,9 +105,9 @@ func (m Model) viewHelp() string {
 		return strings.TrimRight(b.String(), "\n")
 	}
 
-	// Two-column layout: left column gets Global + Results + Detail,
-	// right column gets the editor sections.
-	leftIdx := []int{0, 3, 4}
+	// Two-column layout: left column gets Global + Results + Detail +
+	// Saved; right column gets the editor sections.
+	leftIdx := []int{0, 3, 4, 5}
 	rightIdx := []int{1, 2}
 
 	left := make([]string, 0, len(leftIdx))
