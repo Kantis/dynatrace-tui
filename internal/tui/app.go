@@ -26,6 +26,13 @@ const (
 	focusDetail
 )
 
+type view int
+
+const (
+	viewQuery view = iota
+	viewSaved
+)
+
 type runState int
 
 const (
@@ -46,6 +53,7 @@ type Model struct {
 
 	width, height int
 	focus         focus
+	currentView   view
 
 	editor  Editor
 	table   Table
@@ -76,6 +84,12 @@ type Model struct {
 	saveInput      textinput.Model
 	savedQueries   []SavedQuery
 	savedListIdx   int
+	// Saved searches view (Alt-2)
+	savedMode             savedSearchesMode
+	savedEditNameInput    textinput.Model
+	savedEditBody         Editor
+	savedEditOriginalName string
+	savedEditFocus        savedEditFocus
 	templateNames  []string
 	templateInputs []textinput.Model
 	templateIdx    int
@@ -96,16 +110,24 @@ func New(client *grail.Client) Model {
 
 	saved, _ := loadSavedQueries() // missing file → empty list
 
+	// Pre-initialise the saved-search edit body so applyLayout's SetWidth/Height
+	// calls are safe even before the user enters edit mode (zero-value textarea
+	// panics on SetWidth).
+	editBody := NewEditor()
+	editBody.Blur()
+
 	return Model{
-		client:       client,
-		focus:        focusEditor,
-		editor:       ed,
-		table:        t,
-		detail:       vp,
-		spinner:      sp,
-		state:        stateIdle,
-		infoMsg:      "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Ctrl-O saved · Ctrl-S save · Ctrl-P params · Ctrl-E export · q quit",
-		savedQueries: saved,
+		client:        client,
+		focus:         focusEditor,
+		currentView:   viewQuery,
+		editor:        ed,
+		table:         t,
+		detail:        vp,
+		spinner:       sp,
+		state:         stateIdle,
+		infoMsg:       "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Alt-2 saved · Ctrl-S save · Ctrl-P params · Ctrl-E export · q quit",
+		savedQueries:  saved,
+		savedEditBody: editBody,
 	}
 }
 
@@ -169,6 +191,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// View switching is global (works in either view) and pre-empts other handlers.
+	switch msg.String() {
+	case "alt+1":
+		m.currentView = viewQuery
+		return m, nil
+	case "alt+2":
+		return m.enterSavedView(), nil
+	}
+
+	// Saved Searches view has its own dispatch and ignores modals.
+	if m.currentView == viewSaved {
+		return m.updateSavedView(msg)
+	}
+
 	// If a modal is open, route to its handler first.
 	if m.modal != modalNone {
 		switch m.modal {
@@ -176,8 +212,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.updateTimeRange(msg)
 		case modalSaveQuery:
 			return m.updateSaveQuery(msg)
-		case modalLoadQuery:
-			return m.updateLoadQuery(msg)
 		case modalTemplate:
 			return m.updateTemplate(msg)
 		case modalExport:
@@ -226,9 +260,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.saveInput = newSaveInput("")
 		return m, textinput.Blink
 	case "ctrl+o":
-		m.modal = modalLoadQuery
-		m.savedListIdx = 0
-		return m, nil
+		return m.enterSavedView(), nil
 	case "ctrl+p":
 		if m.prepareTemplate() {
 			m.modal = modalTemplate
@@ -506,6 +538,8 @@ func (m *Model) applyLayout() {
 	m.table.SetHeight(resultsH)
 	m.detail.Width = innerW
 	m.detail.Height = resultsH
+	m.savedEditBody.SetWidth(innerW)
+	m.savedEditBody.SetHeight(editorH)
 	if len(m.records) > 0 {
 		m.populateTable()
 	}
@@ -521,14 +555,16 @@ func (m Model) View() string {
 		return "initializing…"
 	}
 
+	if m.currentView == viewSaved {
+		return m.viewSavedSearches()
+	}
+
 	if m.modal != modalNone {
 		switch m.modal {
 		case modalTimeRange:
 			return m.viewTimeRange()
 		case modalSaveQuery:
 			return m.viewSaveQuery()
-		case modalLoadQuery:
-			return m.viewLoadQuery()
 		case modalTemplate:
 			return m.viewTemplate()
 		case modalExport:
@@ -587,7 +623,7 @@ func (m Model) statusLine() string {
 			left = okText.Render(m.infoMsg)
 		}
 	}
-	right := "Alt-Enter run · Ctrl-G chart · Tab switch · q quit"
+	right := "Alt-Enter run · Ctrl-G chart · Alt-1/2 view · q quit"
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
 		gap = 1

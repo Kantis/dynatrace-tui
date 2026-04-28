@@ -4,7 +4,7 @@ A small Go CLI / TUI for searching Dynatrace logs with DQL.
 
 - `dttui query "<DQL>"` — run a query, print result records as JSON.
 - `dttui` — open the interactive TUI: multi-line DQL editor, results table,
-  JSON detail view, saved searches, parameter templates, JSON/CSV export.
+  JSON detail view, saved searches (with edit), parameter templates, JSON/CSV export.
 
 ## Getting started
 
@@ -85,8 +85,9 @@ with `fetch ...` (e.g. `fetch events`) or with `|` are handled correctly.
 | `Esc` | Cancel running query · close detail view · close modal |
 | `Ctrl-G` | Chart hits over time (re-runs query wrapped in `\| makeTimeseries count=count()`) |
 | `Ctrl-T` | Time-range presets (15m / 1h / 6h / 24h) |
+| `Alt-1` / `Alt-2` | Switch between Query view and Saved Searches view |
 | `Ctrl-S` | Save current query to `~/.config/dynatrace-tui/searches.yaml` |
-| `Ctrl-O` | Open saved searches (`Enter` to load, `d` to delete) |
+| `Ctrl-O` | Jump to the Saved Searches view |
 | `Ctrl-P` | Fill `$placeholder` parameters in the current query |
 | `Ctrl-E` | Export results as JSON or CSV (all rows or current row) |
 | `Ctrl-R` | Redo (vim-style) — pairs with `u` for undo in normal mode |
@@ -125,6 +126,24 @@ group, matching vim's default behavior.
 
 No visual mode, ex commands (`:w`/`:q`), or search yet — ask if you
 want them.
+
+### Saved Searches view
+
+`Alt-2` (or `Ctrl-O`) opens a dedicated view listing every saved search with a
+preview of the selected query. From the list:
+
+| Key | Action |
+| --- | --- |
+| `↑` `↓` (or `j` `k`) | Move selection |
+| `Enter` | Load the selected query into the editor and switch back to the query view |
+| `e` | Edit the selected entry (name + body) in place |
+| `d` | Delete the selected entry |
+| `Alt-1` | Switch back to the query view |
+
+**Edit mode** — `Tab` switches between the **Name** input and the **Query**
+editor (which uses the same vim-style modal editing as the main editor).
+`Ctrl-S` saves and returns to the list; `Esc` cancels. Renaming replaces the
+entry in place; the new name has to be unique.
 
 ### Time-range picker
 

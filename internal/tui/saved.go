@@ -131,13 +131,57 @@ func (m Model) viewSaveQuery() string {
 	return m.renderModalOverlay(b.String())
 }
 
-// --- Load modal -----------------------------------------------------------
+func truncate(s string, max int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-1] + "…"
+}
 
-func (m Model) updateLoadQuery(msg tea.KeyMsg) (Model, tea.Cmd) {
+// --- Saved Searches view (Alt-2) ------------------------------------------
+
+type savedSearchesMode int
+
+const (
+	savedModeList savedSearchesMode = iota
+	savedModeEditing
+)
+
+type savedEditFocus int
+
+const (
+	savedEditFocusName savedEditFocus = iota
+	savedEditFocusBody
+)
+
+// enterSavedView switches into the saved-searches view, clamping the cursor
+// to a valid row and resetting to list mode.
+func (m Model) enterSavedView() Model {
+	m.currentView = viewSaved
+	m.savedMode = savedModeList
+	if m.savedListIdx < 0 {
+		m.savedListIdx = 0
+	}
+	if m.savedListIdx >= len(m.savedQueries) && len(m.savedQueries) > 0 {
+		m.savedListIdx = len(m.savedQueries) - 1
+	}
+	return m
+}
+
+func (m Model) updateSavedView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.savedMode == savedModeEditing {
+		return m.updateSavedEdit(msg)
+	}
+	return m.updateSavedList(msg)
+}
+
+func (m Model) updateSavedList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc":
-		m.modal = modalNone
-		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
+	case "q":
+		return m, tea.Quit
 	case "up", "k":
 		if m.savedListIdx > 0 {
 			m.savedListIdx--
@@ -148,15 +192,13 @@ func (m Model) updateLoadQuery(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	case "enter":
 		if len(m.savedQueries) == 0 {
-			m.modal = modalNone
 			return m, nil
 		}
 		sel := m.savedQueries[m.savedListIdx]
 		m.editor.SetValue(dql.StripFetch(sel.Query))
-		m.modal = modalNone
+		m.currentView = viewQuery
 		m.infoMsg = "loaded " + sel.Name
 		m.state = stateIdle
-		return m, nil
 	case "d":
 		if len(m.savedQueries) == 0 {
 			return m, nil
@@ -169,41 +211,211 @@ func (m Model) updateLoadQuery(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.errMsg = err.Error()
 			m.state = stateError
 		}
-		return m, nil
+	case "e":
+		if len(m.savedQueries) == 0 {
+			return m, nil
+		}
+		sel := m.savedQueries[m.savedListIdx]
+		ti := textinput.New()
+		ti.Placeholder = "name"
+		ti.SetValue(sel.Name)
+		ti.CharLimit = 64
+		ti.Width = 40
+		ti.Focus()
+		m.savedEditNameInput = ti
+		body := NewEditor()
+		body.SetValue(dql.StripFetch(sel.Query))
+		body.Blur()
+		m.savedEditBody = body
+		m.savedEditOriginalName = sel.Name
+		m.savedEditFocus = savedEditFocusName
+		m.savedMode = savedModeEditing
+		m.errMsg = ""
+		m.state = stateIdle
+		// Apply layout sizing to the new editor.
+		m.applyLayout()
+		return m, textinput.Blink
 	}
 	return m, nil
 }
 
-func (m Model) viewLoadQuery() string {
-	var b strings.Builder
-	b.WriteString(paneTitleFocused.Render("Saved searches"))
-	b.WriteString("\n\n")
-	if len(m.savedQueries) == 0 {
-		b.WriteString(statusBar.Render("(none — Ctrl-S in editor to save)"))
-		b.WriteString("\n\n")
-		b.WriteString(statusBar.Render("Esc close"))
-		return m.renderModalOverlay(b.String())
+func (m Model) updateSavedEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.savedMode = savedModeList
+		m.errMsg = ""
+		return m, nil
+	case "tab":
+		m = m.cycleSavedEditFocus(false)
+		return m, nil
+	case "shift+tab":
+		m = m.cycleSavedEditFocus(true)
+		return m, nil
+	case "ctrl+s":
+		name := strings.TrimSpace(m.savedEditNameInput.Value())
+		if name == "" {
+			m.errMsg = "name cannot be empty"
+			m.state = stateError
+			return m, nil
+		}
+		body := strings.TrimSpace(m.savedEditBody.Value())
+		if body == "" {
+			m.errMsg = "query cannot be empty"
+			m.state = stateError
+			return m, nil
+		}
+		// Collision check on rename.
+		if name != m.savedEditOriginalName {
+			for i, q := range m.savedQueries {
+				if i == m.savedListIdx {
+					continue
+				}
+				if q.Name == name {
+					m.errMsg = "another saved search already uses that name"
+					m.state = stateError
+					return m, nil
+				}
+			}
+		}
+		m.savedQueries[m.savedListIdx] = SavedQuery{Name: name, Query: dql.PrependFetch(body)}
+		if err := writeSavedQueries(m.savedQueries); err != nil {
+			m.errMsg = err.Error()
+			m.state = stateError
+			return m, nil
+		}
+		m.infoMsg = "saved " + name
+		m.errMsg = ""
+		m.state = stateIdle
+		m.savedMode = savedModeList
+		return m, nil
 	}
+
+	// Route key to focused widget.
+	var cmd tea.Cmd
+	if m.savedEditFocus == savedEditFocusName {
+		m.savedEditNameInput, cmd = m.savedEditNameInput.Update(msg)
+	} else {
+		m.savedEditBody, cmd = m.savedEditBody.Update(msg)
+	}
+	return m, cmd
+}
+
+func (m Model) cycleSavedEditFocus(reverse bool) Model {
+	_ = reverse // only two fields, direction doesn't matter
+	if m.savedEditFocus == savedEditFocusName {
+		m.savedEditNameInput.Blur()
+		m.savedEditFocus = savedEditFocusBody
+		m.savedEditBody.Focus()
+	} else {
+		m.savedEditBody.Blur()
+		m.savedEditFocus = savedEditFocusName
+		m.savedEditNameInput.Focus()
+	}
+	return m
+}
+
+func (m Model) viewSavedSearches() string {
+	var sections []string
+
+	listFocused := m.savedMode == savedModeList
+	listTitle := "Saved searches"
+	listTitleStyle := paneTitle
+	listBorder := paneBorder
+	if listFocused {
+		listTitleStyle = paneTitleFocused
+		listBorder = paneBorderFocused
+	}
+	sections = append(sections, listTitleStyle.Render(listTitle))
+	sections = append(sections, listBorder.Render(m.renderSavedList()))
+
+	if m.savedMode == savedModeEditing {
+		sections = append(sections, m.renderSavedEditForm()...)
+	} else {
+		sections = append(sections, paneTitle.Render("Preview"))
+		sections = append(sections, paneBorder.Render(m.renderSavedPreview()))
+	}
+
+	sections = append(sections, m.savedStatusLine())
+
+	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+func (m Model) renderSavedList() string {
+	if len(m.savedQueries) == 0 {
+		return "  (none — Alt-1 to query view, Ctrl-S there to save the current query)"
+	}
+	var b strings.Builder
+	nameStyle := lipgloss.NewStyle().Bold(true)
 	for i, q := range m.savedQueries {
 		prefix := "  "
-		nameStyle := lipgloss.NewStyle().Bold(true)
 		querySnippet := truncate(q.Query, 60)
 		line := fmt.Sprintf("%s — %s", nameStyle.Render(q.Name), querySnippet)
 		if i == m.savedListIdx {
 			prefix = "▶ "
-			line = lipgloss.NewStyle().Foreground(colorAccent).Render(line)
+			if m.savedMode == savedModeList {
+				line = lipgloss.NewStyle().Foreground(colorAccent).Render(line)
+			}
 		}
 		b.WriteString(prefix + line + "\n")
 	}
-	b.WriteString("\n")
-	b.WriteString(statusBar.Render("↑/↓ select · Enter load · d delete · Esc close"))
-	return m.renderModalOverlay(b.String())
+	return strings.TrimRight(b.String(), "\n")
 }
 
-func truncate(s string, max int) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) <= max {
-		return s
+func (m Model) renderSavedPreview() string {
+	if len(m.savedQueries) == 0 {
+		return ""
 	}
-	return s[:max-1] + "…"
+	sel := m.savedQueries[m.savedListIdx]
+	return dql.StripFetch(sel.Query)
+}
+
+func (m Model) renderSavedEditForm() []string {
+	nameFocused := m.savedEditFocus == savedEditFocusName
+	bodyFocused := m.savedEditFocus == savedEditFocusBody
+
+	nameTitle := "Name"
+	nameTitleStyle := paneTitle
+	nameBorder := paneBorder
+	if nameFocused {
+		nameTitleStyle = paneTitleFocused
+		nameBorder = paneBorderFocused
+	}
+
+	bodyTitle := fmt.Sprintf("Query [%s]", m.savedEditBody.Mode())
+	bodyTitleStyle := paneTitle
+	bodyBorder := paneBorder
+	if bodyFocused {
+		bodyTitleStyle = paneTitleFocused
+		bodyBorder = paneBorderFocused
+	}
+
+	return []string{
+		nameTitleStyle.Render(nameTitle),
+		nameBorder.Render(m.savedEditNameInput.View()),
+		bodyTitleStyle.Render(bodyTitle),
+		bodyBorder.Render(m.savedEditBody.View()),
+	}
+}
+
+func (m Model) savedStatusLine() string {
+	left := ""
+	switch m.state {
+	case stateError:
+		left = errorText.Render("error: " + m.errMsg)
+	case stateIdle:
+		if m.infoMsg != "" {
+			left = okText.Render(m.infoMsg)
+		}
+	}
+	var right string
+	if m.savedMode == savedModeEditing {
+		right = "Tab switch · Ctrl-S save · Esc cancel"
+	} else {
+		right = "↑/↓ select · e edit · Enter load · d delete · Alt-1 query"
+	}
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
+	if gap < 1 {
+		gap = 1
+	}
+	return statusBar.Render(left + strings.Repeat(" ", gap) + right)
 }

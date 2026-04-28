@@ -10,7 +10,6 @@ const (
 	modalNone modalKind = iota
 	modalTimeRange
 	modalSaveQuery
-	modalLoadQuery
 	modalTemplate
 	modalExport
 )
