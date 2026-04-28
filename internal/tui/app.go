@@ -348,11 +348,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// `?` opens the shortcut legend. Suppressed only when typing in the
-	// vim editor's insert mode so a literal `?` can land in the query —
-	// when vim is disabled the editor surrenders that key so the legend
-	// stays reachable.
-	editorTyping := m.focus == focusEditor && m.editor.Vim() && m.editor.Mode() == modeInsert
+	// `?` opens the shortcut legend. Suppressed when the editor is focused
+	// and accepting literal input — i.e. vim is off (no modal) or vim is
+	// in insert mode — so the character can land in the query.
+	editorTyping := m.focus == focusEditor && (!m.editor.Vim() || m.editor.Mode() == modeInsert)
 	if msg.String() == "?" && !editorTyping {
 		m.modal = modalHelp
 		return m, nil
