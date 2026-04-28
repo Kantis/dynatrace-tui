@@ -569,9 +569,7 @@ func (m *Model) applyLayout() {
 	m.detail.Height = resultsH
 	m.savedEditBody.SetWidth(innerW)
 	m.savedEditBody.SetHeight(editorH)
-	if len(m.records) > 0 {
-		m.populateTable()
-	}
+	m.populateTable()
 	if m.detailKind == detailChart && len(m.chartRecords) > 0 {
 		m.detail.SetContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height))
 	}
