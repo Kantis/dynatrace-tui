@@ -83,6 +83,7 @@ with `fetch ...` (e.g. `fetch events`) or with `|` are handled correctly.
 | `↑` `↓` | Navigate result rows (when results focused) |
 | `Enter` | Expand selected row as formatted JSON |
 | `Esc` | Cancel running query · close detail view · close modal |
+| `Ctrl-G` | Chart hits over time (re-runs query wrapped in `\| makeTimeseries count=count()`) |
 | `Ctrl-T` | Time-range presets (15m / 1h / 6h / 24h) |
 | `Ctrl-S` | Save current query to `~/.config/dynatrace-tui/searches.yaml` |
 | `Ctrl-O` | Open saved searches (`Enter` to load, `d` to delete) |
