@@ -266,7 +266,7 @@ func (m Model) updateSavedList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		ti.Width = 40
 		ti.Focus()
 		m.savedEditNameInput = ti
-		body := NewEditor()
+		body := NewEditor(m.savedEditBody.Vim())
 		body.SetValue(dql.StripFetch(sel.Query))
 		body.Blur()
 		m.savedEditBody = body

@@ -42,7 +42,7 @@ func pressKeys(t *testing.T, e Editor, keys ...string) Editor {
 
 func newEditorWithBuffer(t *testing.T, content string) Editor {
 	t.Helper()
-	e := NewEditor()
+	e := NewEditor(true)
 	e.SetValue(content)
 	// Switch to normal mode for tests; SetValue itself doesn't change mode.
 	e = pressKey(t, e, "esc")
@@ -52,14 +52,14 @@ func newEditorWithBuffer(t *testing.T, content string) Editor {
 }
 
 func TestModeStartsInsert(t *testing.T) {
-	e := NewEditor()
+	e := NewEditor(true)
 	if e.Mode() != modeInsert {
 		t.Fatalf("expected initial mode INSERT, got %s", e.Mode())
 	}
 }
 
 func TestEscEntersNormal(t *testing.T) {
-	e := NewEditor()
+	e := NewEditor(true)
 	e = pressKey(t, e, "esc")
 	if e.Mode() != modeNormal {
 		t.Fatalf("expected mode NORMAL after Esc, got %s", e.Mode())

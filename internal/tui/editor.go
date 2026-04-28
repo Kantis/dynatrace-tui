@@ -37,9 +37,14 @@ func (m vimMode) String() string {
 // Operator-pending state is single-character; entering anything other
 // than the expected completion clears it (e.g. d followed by anything
 // but d is dropped — only `dd` is supported).
+//
+// When vim is false, all the modal behaviour above is bypassed and the
+// editor is a plain textarea — Esc has no effect, normal-mode keys are
+// typed literally, and Mode() is meaningless.
 type Editor struct {
 	ta   textarea.Model
 	mode vimMode
+	vim  bool
 
 	pendingD bool
 	pendingY bool
@@ -105,17 +110,18 @@ func (e *Editor) redo() {
 // both insert and normal mode).
 func (e *Editor) Redo() { e.redo() }
 
-func NewEditor() Editor {
+func NewEditor(vim bool) Editor {
 	ta := textarea.New()
 	ta.ShowLineNumbers = true
 	ta.CharLimit = 0
 	ta.SetHeight(8)
 	ta.Placeholder = "from:now()-15m | filter loglevel == \"ERROR\""
 	ta.Focus()
-	return Editor{ta: ta, mode: modeInsert}
+	return Editor{ta: ta, mode: modeInsert, vim: vim}
 }
 
 func (e Editor) Mode() vimMode { return e.mode }
+func (e Editor) Vim() bool     { return e.vim }
 
 func (e Editor) Value() string  { return e.ta.Value() }
 func (e Editor) Focused() bool  { return e.ta.Focused() }
@@ -131,6 +137,12 @@ func (e *Editor) Blur()               { e.ta.Blur() }
 func (e Editor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 	keyMsg, isKey := msg.(tea.KeyMsg)
 	if !isKey {
+		var cmd tea.Cmd
+		e.ta, cmd = e.ta.Update(msg)
+		return e, cmd
+	}
+
+	if !e.vim {
 		var cmd tea.Cmd
 		e.ta, cmd = e.ta.Update(msg)
 		return e, cmd

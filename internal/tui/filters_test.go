@@ -83,7 +83,7 @@ func TestInsertFilterIntoEditor(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := Model{editor: NewEditor()}
+			m := Model{editor: NewEditor(false)}
 			m.editor.SetValue(tc.body)
 			m = m.insertFilterIntoEditor(tc.fragment)
 			if got := m.editor.Value(); got != tc.want {
@@ -98,7 +98,7 @@ func TestResolveFilterSubstitutesProvidedValues(t *testing.T) {
 		Name:     "by-service",
 		Template: `dt.entity.service == "$service" and loglevel == "$level"`,
 	}
-	m := Model{editor: NewEditor()}
+	m := Model{editor: NewEditor(false)}
 	m = m.pickFilter(f)
 
 	// Sanity check: pickFilter should have transitioned to the resolve modal
@@ -126,7 +126,7 @@ func TestResolveFilterKeepsBlankPlaceholderLiteral(t *testing.T) {
 		Name:     "two-params",
 		Template: `a == "$x" and b == "$y"`,
 	}
-	m := Model{editor: NewEditor()}
+	m := Model{editor: NewEditor(false)}
 	m = m.pickFilter(f)
 
 	m.resolveInputs[0].SetValue("a-value")
@@ -145,7 +145,7 @@ func TestPickFilterNoPlaceholdersInsertsDirectly(t *testing.T) {
 		Name:     "no-params",
 		Template: `loglevel == "ERROR"`,
 	}
-	m := Model{editor: NewEditor()}
+	m := Model{editor: NewEditor(false)}
 	m.editor.SetValue("from:now()-15m")
 	m = m.pickFilter(f)
 
@@ -182,7 +182,7 @@ func TestCycleResolveSuggestionFillsInput(t *testing.T) {
 			"level": {"ERROR", "WARN", "INFO"},
 		},
 	}
-	m := Model{editor: NewEditor()}
+	m := Model{editor: NewEditor(false)}
 	m = m.pickFilter(f)
 
 	// Down once → ERROR (idx 0).

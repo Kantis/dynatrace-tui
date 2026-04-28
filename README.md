@@ -111,8 +111,12 @@ without an enhanced keyboard protocol enabled (kitty / iTerm2 with
 
 ### Editor (vim-style modal)
 
-The query editor starts in **insert** mode (type immediately). Press `Esc`
-to enter **normal** mode; the title flips to `Query [NORMAL]`.
+The query editor is a plain textarea by default. Set `vim_mode: true` at
+the top of `~/.config/dynatrace-tui/config.yaml` to opt into the vim-style
+modal editor described below.
+
+With vim mode on, the editor starts in **insert** mode (type immediately).
+Press `Esc` to enter **normal** mode; the tabs row flips to `[NORMAL]`.
 
 | Normal-mode key | Action |
 | --- | --- |
@@ -239,6 +243,10 @@ environments:
 # Optional. The first environment in the file is used when neither
 # `default:` nor `--env` is set.
 default: PROD
+
+# Optional. Enables the vim-style modal query editor. Off by default —
+# when off the editor is a plain textarea.
+vim_mode: true
 ```
 
 Pick an environment with `--env <name>` (or `-e <name>`); inside the TUI use

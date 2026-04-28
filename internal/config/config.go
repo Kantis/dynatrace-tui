@@ -27,6 +27,7 @@ type Loaded struct {
 	Path     string
 	Names    []string // ordered as in the file
 	Selected string   // resolved selection (CLI flag → `default:` → first)
+	VimMode  bool     // top-level `vim_mode:` — opt-in vim modal editor
 	specs    map[string]envSpec
 }
 
@@ -44,6 +45,9 @@ type fileShape struct {
 	// New multi-environment shape. yaml.Node so we can preserve key order.
 	Environments yaml.Node `yaml:"environments"`
 	Default      string    `yaml:"default"`
+
+	// Top-level UI prefs (env-independent).
+	VimMode bool `yaml:"vim_mode"`
 
 	// Legacy single-environment shape — synthesised into a single env named
 	// "default" when `environments` is absent.
@@ -105,7 +109,7 @@ func Load(path, selectedEnv string) (*Loaded, error) {
 		specs = map[string]envSpec{"default": spec}
 	}
 
-	loaded := &Loaded{Path: path, Names: names, specs: specs}
+	loaded := &Loaded{Path: path, Names: names, VimMode: f.VimMode, specs: specs}
 
 	pick := selectedEnv
 	if pick == "" {
