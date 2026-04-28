@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 
 	"github.com/kantis/dynatrace-tui/internal/auth"
 	"github.com/kantis/dynatrace-tui/internal/config"
+	"github.com/kantis/dynatrace-tui/internal/dql"
 	"github.com/kantis/dynatrace-tui/internal/grail"
 )
 
@@ -24,56 +24,21 @@ func queryCmd() *cobra.Command {
 		Use:   "query [DQL]",
 		Short: "Run a DQL query and print result records as JSON",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runQuery(cmd.Context(), args[0], timeframe)
+		RunE: func(c *cobra.Command, args []string) error {
+			return runQuery(c.Context(), args[0], timeframe)
 		},
 	}
 	c.Flags().StringVarP(&timeframe, "timeframe", "t", "", "convenience preset (15m, 1h, 6h, 24h); ignored if DQL already has from:")
 	return c
 }
 
-var validTimeframes = map[string]struct{}{
-	"15m": {}, "1h": {}, "6h": {}, "24h": {},
-}
-
-func applyTimeframe(dql, tf string) (string, error) {
-	if tf == "" {
-		return dql, nil
-	}
-	if _, ok := validTimeframes[tf]; !ok {
-		return "", fmt.Errorf("invalid --timeframe %q (allowed: 15m, 1h, 6h, 24h)", tf)
-	}
-	if strings.Contains(dql, "from:") {
-		return dql, nil
-	}
-	// Inject `, from:now()-<tf>` after the first verb token.
-	// Simplest: if the query starts with "fetch <something>", insert after that token.
-	// For PoC accuracy, just append: `<dql> | filter timestamp > now()-<tf>` is safer
-	// when caller built a complex query, but DQL prefers `from:`. We'll insert into the
-	// fetch clause if it's recognizable, otherwise append a filter.
-	trimmed := strings.TrimSpace(dql)
-	if strings.HasPrefix(trimmed, "fetch ") {
-		head, tail := trimmed, ""
-		if i := strings.IndexAny(trimmed[len("fetch "):], ",|"); i >= 0 {
-			head = strings.TrimRight(trimmed[:len("fetch ")+i], " \t")
-			tail = trimmed[len("fetch ")+i:]
-		}
-		injected := head + ", from:now()-" + tf
-		if tail != "" {
-			injected += " " + strings.TrimLeft(tail, " \t")
-		}
-		return injected, nil
-	}
-	return trimmed + " | filter timestamp > now()-" + tf, nil
-}
-
-func runQuery(parent context.Context, dql, timeframe string) error {
+func runQuery(parent context.Context, query, timeframe string) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
 	}
 
-	finalDQL, err := applyTimeframe(dql, timeframe)
+	finalDQL, err := dql.ApplyTimeframe(query, timeframe)
 	if err != nil {
 		return err
 	}
