@@ -62,7 +62,7 @@ results pane below.
 
 | Key | Action |
 | --- | --- |
-| `Ctrl-R` | Run the current query |
+| `Alt-Enter` / `Ctrl-Enter`* | Run the current query |
 | `Tab` / `Shift-Tab` | Cycle focus between editor and results |
 | `↑` `↓` | Navigate result rows (when results focused) |
 | `Enter` | Expand selected row as formatted JSON |
@@ -72,8 +72,14 @@ results pane below.
 | `Ctrl-O` | Open saved searches (`Enter` to load, `d` to delete) |
 | `Ctrl-P` | Fill `$placeholder` parameters in the current query |
 | `Ctrl-E` | Export results as JSON or CSV (all rows or current row) |
+| `Ctrl-R` | Redo (vim-style) — pairs with `u` for undo in normal mode |
 | `q` | Quit (when not editing text) |
 | `Ctrl-C` | Cancel running query, or quit when idle |
+
+\* Most terminals don't distinguish `Ctrl-Enter` from plain `Enter`
+without an enhanced keyboard protocol enabled (kitty / iTerm2 with
+`CSI u` mode). `Alt-Enter` works everywhere bubbletea runs.
+`Ctrl-Space` also runs the query as a fallback.
 
 ### Editor (vim-style modal)
 
@@ -89,12 +95,19 @@ to enter **normal** mode; the title flips to `Query [NORMAL]`.
 | `0` `$` | Line start / end |
 | `gg` `G` | First / last line |
 | `x` | Delete character |
+| `D` | Delete from cursor to end of line |
 | `dd` `yy` `p` | Delete / yank / paste line |
 | `dw` `db` | Delete word forward / backward |
 | `yw` `yb` | Yank word forward / backward |
+| `u` | Undo last edit-group |
+| `Ctrl-R` | Redo (works in either mode) |
 
-No visual mode, ex commands (`:w`/`:q`), search, or undo/redo yet —
-ask if you want them.
+An *edit-group* is one undo step. A whole insert session — from
+`i`/`a`/`I`/`A`/`o`/`O` until `Esc` — collapses into a single
+group, matching vim's default behavior.
+
+No visual mode, ex commands (`:w`/`:q`), or search yet — ask if you
+want them.
 
 ### Templates
 

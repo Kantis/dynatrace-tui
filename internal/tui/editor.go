@@ -25,10 +25,13 @@ func (m vimMode) String() string {
 //
 // Supported normal-mode keys:
 //
-//	motions:  h j k l, w b, 0 $, gg G
-//	edits:    x, dd, yy, p, dw, db, yw, yb
-//	→ insert: i (here), I (line start), a (right), A (line end),
-//	          o (open below), O (open above)
+//	motions:    h j k l, w b, 0 $, gg G
+//	edits:      x, D (delete to end of line), dd, yy, p, dw, db, yw, yb
+//	undo/redo:  u (undo) — Ctrl+R (redo) is intercepted at the app level
+//	            so it works in either mode; an insert session counts as
+//	            one undo step.
+//	→ insert:   i (here), I (line start), a (right), A (line end),
+//	            o (open below), O (open above)
 //	Esc returns to normal mode from insert.
 //
 // Operator-pending state is single-character; entering anything other
@@ -43,7 +46,64 @@ type Editor struct {
 	pendingG bool
 
 	register string // last yanked / deleted line
+
+	undoStack []undoSnapshot
+	redoStack []undoSnapshot
 }
+
+type undoSnapshot struct {
+	value string
+	row   int
+	col   int
+}
+
+const maxUndoDepth = 200
+
+// pushUndo captures the current buffer + cursor onto the undo stack. Call
+// before any edit (insert/delete/paste) and before entering insert mode so a
+// whole insert session collapses into one undo step. Pushing a new edit
+// invalidates any pending redo history.
+func (e *Editor) pushUndo() {
+	e.undoStack = append(e.undoStack, e.snapshot())
+	if len(e.undoStack) > maxUndoDepth {
+		e.undoStack = e.undoStack[len(e.undoStack)-maxUndoDepth:]
+	}
+	e.redoStack = nil
+}
+
+func (e Editor) snapshot() undoSnapshot {
+	row, col := e.cursorPos()
+	return undoSnapshot{value: e.ta.Value(), row: row, col: col}
+}
+
+func (e *Editor) undo() {
+	n := len(e.undoStack)
+	if n == 0 {
+		return
+	}
+	// Capture current state for redo before reverting.
+	e.redoStack = append(e.redoStack, e.snapshot())
+	snap := e.undoStack[n-1]
+	e.undoStack = e.undoStack[:n-1]
+	e.ta.SetValue(snap.value)
+	e.setCursor(snap.row, snap.col)
+}
+
+func (e *Editor) redo() {
+	n := len(e.redoStack)
+	if n == 0 {
+		return
+	}
+	e.undoStack = append(e.undoStack, e.snapshot())
+	snap := e.redoStack[n-1]
+	e.redoStack = e.redoStack[:n-1]
+	e.ta.SetValue(snap.value)
+	e.setCursor(snap.row, snap.col)
+}
+
+// Redo is called by the app-level handler (Ctrl+R is global so it works in
+// both insert and normal mode).
+func (e *Editor) Redo() { e.redo() }
 
 func NewEditor() Editor {
 	ta := textarea.New()
@@ -105,10 +165,13 @@ func (e Editor) updateNormal(msg tea.KeyMsg) (Editor, tea.Cmd) {
 		e.pendingD = false
 		switch s {
 		case "d":
+			e.pushUndo()
 			e.deleteLine()
 		case "w":
+			e.pushUndo()
 			e.wordOp(true, true)
 		case "b":
+			e.pushUndo()
 			e.wordOp(false, true)
 		}
 		return e, nil
@@ -126,22 +189,29 @@ func (e Editor) updateNormal(msg tea.KeyMsg) (Editor, tea.Cmd) {
 	}
 
 	switch s {
-	// Mode transitions
+	// Mode transitions — snapshot before so the whole insert session
+	// collapses into one undo step.
 	case "i":
+		e.pushUndo()
 		e.mode = modeInsert
 	case "I":
+		e.pushUndo()
 		e.send(tea.KeyMsg{Type: tea.KeyHome})
 		e.mode = modeInsert
 	case "a":
+		e.pushUndo()
 		e.send(tea.KeyMsg{Type: tea.KeyRight})
 		e.mode = modeInsert
 	case "A":
+		e.pushUndo()
 		e.send(tea.KeyMsg{Type: tea.KeyEnd})
 		e.mode = modeInsert
 	case "o":
+		e.pushUndo()
 		e.openLineBelow()
 		e.mode = modeInsert
 	case "O":
+		e.pushUndo()
 		e.openLineAbove()
 		e.mode = modeInsert
 
@@ -169,13 +239,20 @@ func (e Editor) updateNormal(msg tea.KeyMsg) (Editor, tea.Cmd) {
 
 	// Edits
 	case "x":
+		e.pushUndo()
 		e.send(tea.KeyMsg{Type: tea.KeyDelete})
+	case "D":
+		e.pushUndo()
+		e.deleteToLineEnd()
 	case "d":
 		e.pendingD = true
 	case "y":
 		e.pendingY = true
 	case "p":
+		e.pushUndo()
 		e.pasteLine()
+	case "u":
+		e.undo()
 	}
 
 	return e, nil
@@ -280,6 +357,17 @@ func (e *Editor) gotoTop() {
 		e.ta.CursorUp()
 	}
 	e.ta.SetCursor(0)
+}
+
+// deleteToLineEnd deletes from the cursor to the end of the current line and
+// captures the removed text in the register.
+func (e *Editor) deleteToLineEnd() {
+	row, col := e.cursorPos()
+	lines := strings.Split(e.ta.Value(), "\n")
+	if row >= 0 && row < len(lines) {
+		e.register = runeSlice(lines[row], col, -1)
+	}
+	e.send(tea.KeyMsg{Type: tea.KeyCtrlK})
 }
 
 func (e *Editor) gotoBottom() {

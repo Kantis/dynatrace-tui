@@ -229,6 +229,134 @@ func TestYankWordBackwardLeavesBufferUnchanged(t *testing.T) {
 	}
 }
 
+func TestDDeletesToLineEnd(t *testing.T) {
+	e := newEditorWithBuffer(t, "alpha beta")
+	// gg lands on row 0 col 0; advance one word to put cursor at col 5 (the space)
+	e = pressKey(t, e, "w")
+	e = pressKey(t, e, "D")
+	if got := e.Value(); got != "alpha" {
+		t.Errorf("D after w on \"alpha beta\": got %q, want %q", got, "alpha")
+	}
+	if e.register != " beta" {
+		t.Errorf("register after D: got %q, want %q", e.register, " beta")
+	}
+}
+
+func TestDDeletesToLineEndPreservesOtherLines(t *testing.T) {
+	e := newEditorWithBuffer(t, "first line\nsecond")
+	e = pressKey(t, e, "D")
+	if got := e.Value(); got != "\nsecond" {
+		t.Errorf("D at start of multiline: got %q, want %q", got, "\nsecond")
+	}
+}
+
+func TestDIsUndoable(t *testing.T) {
+	const buf = "alpha beta gamma"
+	e := newEditorWithBuffer(t, buf)
+	e = pressKey(t, e, "D")
+	if e.Value() == buf {
+		t.Fatalf("D didn't change buffer")
+	}
+	e = pressKey(t, e, "u")
+	if got := e.Value(); got != buf {
+		t.Errorf("undo after D: got %q, want %q", got, buf)
+	}
+}
+
+func TestUndoRevertsDeleteLine(t *testing.T) {
+	const buf = "alpha\nbeta\ngamma"
+	e := newEditorWithBuffer(t, buf)
+	e = pressKeys(t, e, "d", "d")
+	if got := e.Value(); got != "beta\ngamma" {
+		t.Fatalf("after dd: got %q", got)
+	}
+	e = pressKey(t, e, "u")
+	if got := e.Value(); got != buf {
+		t.Errorf("after u: got %q, want %q", got, buf)
+	}
+}
+
+func TestUndoRevertsInsertSession(t *testing.T) {
+	e := newEditorWithBuffer(t, "alpha")
+	e = pressKey(t, e, "$") // end of line
+	e = pressKey(t, e, "a") // append → insert mode
+	// type some chars
+	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" beta")})
+	if got := e.Value(); got != "alpha beta" {
+		t.Fatalf("after typing: got %q", got)
+	}
+	e = pressKey(t, e, "esc")
+	e = pressKey(t, e, "u")
+	if got := e.Value(); got != "alpha" {
+		t.Errorf("undo after insert session: got %q, want %q", got, "alpha")
+	}
+}
+
+func TestUndoStacksMultipleEdits(t *testing.T) {
+	e := newEditorWithBuffer(t, "alpha\nbeta\ngamma")
+	e = pressKeys(t, e, "d", "d")             // → "beta\ngamma"
+	e = pressKeys(t, e, "d", "d")             // → "gamma"
+	if got := e.Value(); got != "gamma" {
+		t.Fatalf("after two dds: got %q", got)
+	}
+	e = pressKey(t, e, "u")                   // → "beta\ngamma"
+	if got := e.Value(); got != "beta\ngamma" {
+		t.Errorf("first u: got %q", got)
+	}
+	e = pressKey(t, e, "u")                   // → "alpha\nbeta\ngamma"
+	if got := e.Value(); got != "alpha\nbeta\ngamma" {
+		t.Errorf("second u: got %q", got)
+	}
+}
+
+func TestRedoReplaysUndoneEdit(t *testing.T) {
+	e := newEditorWithBuffer(t, "alpha\nbeta")
+	e = pressKeys(t, e, "d", "d") // → "beta"
+	e = pressKey(t, e, "u")        // → "alpha\nbeta"
+	if got := e.Value(); got != "alpha\nbeta" {
+		t.Fatalf("after u: got %q", got)
+	}
+	e.Redo() // simulate global ctrl+r dispatch
+	if got := e.Value(); got != "beta" {
+		t.Errorf("after redo: got %q, want %q", got, "beta")
+	}
+}
+
+func TestRedoClearedAfterNewEdit(t *testing.T) {
+	e := newEditorWithBuffer(t, "alpha\nbeta\ngamma")
+	e = pressKeys(t, e, "d", "d") // delete line → "beta\ngamma"
+	e = pressKey(t, e, "u")        // → "alpha\nbeta\ngamma"
+	e = pressKeys(t, e, "d", "d") // new edit → "beta\ngamma"; redo cleared
+	if len(e.redoStack) != 0 {
+		t.Errorf("redo stack should be cleared after new edit, has %d", len(e.redoStack))
+	}
+	e.Redo()
+	if got := e.Value(); got != "beta\ngamma" {
+		t.Errorf("redo on empty should be no-op, got %q", got)
+	}
+}
+
+func TestUndoOnEmptyStackIsNoop(t *testing.T) {
+	const buf = "alpha"
+	e := newEditorWithBuffer(t, buf)
+	e = pressKey(t, e, "u")
+	if got := e.Value(); got != buf {
+		t.Errorf("u on empty stack changed buffer: %q", got)
+	}
+}
+
+func TestUndoRevertsOpenLine(t *testing.T) {
+	const buf = "one\ntwo"
+	e := newEditorWithBuffer(t, buf)
+	e = pressKey(t, e, "o") // open below + insert
+	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("INSERTED")})
+	e = pressKey(t, e, "esc")
+	e = pressKey(t, e, "u")
+	if got := e.Value(); got != buf {
+		t.Errorf("undo after o+typing: got %q, want %q", got, buf)
+	}
+}
+
 func TestPendingDClearedOnUnknownMotion(t *testing.T) {
 	e := newEditorWithBuffer(t, "alpha")
 	e = pressKey(t, e, "d")

@@ -103,7 +103,7 @@ func New(client *grail.Client) Model {
 		detail:       vp,
 		spinner:      sp,
 		state:        stateIdle,
-		infoMsg:      "ready — Ctrl-R run · Ctrl-T timerange · Ctrl-O saved · Ctrl-S save · Ctrl-P params · Ctrl-E export · q quit",
+		infoMsg:      "ready — Alt-Enter / Ctrl-Enter run · Ctrl-T timerange · Ctrl-O saved · Ctrl-S save · Ctrl-P params · Ctrl-E export · q quit",
 		savedQueries: saved,
 	}
 }
@@ -194,9 +194,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.cycleFocus(false), nil
 	case "shift+tab":
 		return m.cycleFocus(true), nil
-	case "ctrl+r":
+	case "ctrl+@", "ctrl+enter", "alt+enter":
+		// Run query. ctrl+enter is only distinguishable on terminals with an
+		// enhanced keyboard protocol; alt+enter and ctrl+space (ctrl+@) cover
+		// the rest. Enter alone still inserts a newline in the editor.
 		if m.state != stateRunning {
 			return m.runQuery()
+		}
+		return m, nil
+	case "ctrl+r":
+		// Vim-style redo. Works in either mode since it's intercepted globally.
+		if m.focus == focusEditor {
+			m.editor.Redo()
 		}
 		return m, nil
 	case "ctrl+t":
@@ -511,7 +520,7 @@ func (m Model) statusLine() string {
 			left = okText.Render(m.infoMsg)
 		}
 	}
-	right := "Ctrl-R run · Tab switch · Enter expand · q quit"
+	right := "Alt-Enter run · u/Ctrl-R undo/redo · Tab switch · q quit"
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
 		gap = 1
