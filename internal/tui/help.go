@@ -23,10 +23,11 @@ var helpSections = []helpSection{
 		{"Ctrl-T", "time range picker"},
 		{"Ctrl-S", "save current query"},
 		{"Ctrl-O", "open saved searches"},
+		{"Ctrl-F", "insert favorite filter"},
 		{"Ctrl-P", "fill $param templates"},
 		{"Ctrl-X", "export results"},
 		{"Ctrl-E", "switch environment"},
-		{"Alt-1 / Alt-2", "switch view (Query / Saved)"},
+		{"Alt-1 / Alt-2 / Alt-3", "switch view (Query / Saved / Filters)"},
 		{"Tab / Shift-Tab", "cycle focus"},
 		{"?", "this help"},
 		{"Esc", "cancel running query / close detail"},
@@ -74,6 +75,15 @@ var helpSections = []helpSection{
 		{"*", "toggle as default (auto-run on startup)"},
 		{"d", "delete entry"},
 	}},
+	{"Favorite filters view (Alt-3)", []helpEntry{
+		{"↑ / ↓ (or k / j)", "move cursor"},
+		{"Enter", "insert filter into editor (resolve placeholders)"},
+		{"n", "new filter"},
+		{"e", "edit filter (name, template, suggestions)"},
+		{"d", "delete filter"},
+		{"Tab (in edit)", "cycle name → template → suggestion fields"},
+		{"Ctrl-S (in edit)", "save"},
+	}},
 }
 
 func (m Model) updateHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -111,9 +121,9 @@ func (m Model) viewHelp() string {
 	}
 
 	// Two-column layout: left column gets Global + Results + Detail +
-	// Saved; right column gets the editor sections + Chart-view nudges.
+	// Chart; right column gets editor sections + view-specific shortcuts.
 	leftIdx := []int{0, 3, 4, 5}
-	rightIdx := []int{1, 2, 6}
+	rightIdx := []int{1, 2, 6, 7}
 
 	left := make([]string, 0, len(leftIdx))
 	for _, i := range leftIdx {

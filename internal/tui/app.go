@@ -32,6 +32,7 @@ type view int
 const (
 	viewQuery view = iota
 	viewSaved
+	viewFilters
 )
 
 type runState int
@@ -120,6 +121,29 @@ type Model struct {
 	templateIdx    int
 	exportIdx      int
 	envSwitchIdx   int
+
+	// Favorite filters (Alt-3)
+	filters         []SavedFilter
+	filtersListIdx  int
+	filtersMode     filtersMode
+	filterEditIsNew         bool
+	filterEditOriginalName  string
+	filterEditNameInput     textinput.Model
+	filterEditTemplate      textarea.Model
+	filterEditPlaceholders  []string
+	filterEditSuggestions   []textarea.Model
+	filterEditValuesByName  map[string]string
+	filterEditFocus         int
+
+	// Pick-filter modal (Ctrl-F)
+	pickFilterIdx int
+
+	// Resolve-filter modal
+	resolveFilter SavedFilter
+	resolveNames  []string
+	resolveInputs []textinput.Model
+	resolveSugIdx []int // current suggestion index per placeholder, -1 if none picked
+	resolveFocus  int
 }
 
 func New(client *grail.Client, envName string, envNames []string, makeClient func(string) (*grail.Client, error)) Model {
@@ -135,6 +159,7 @@ func New(client *grail.Client, envName string, envNames []string, makeClient fun
 	sp.Spinner = spinner.Dot
 
 	saved, defaultName, _ := loadSavedQueries() // missing file → empty list
+	filters, _ := loadSavedFilters()            // missing file → empty list
 
 	// Pre-initialise the saved-search edit body so applyLayout's SetWidth/Height
 	// calls are safe even before the user enters edit mode (zero-value textarea
@@ -142,7 +167,7 @@ func New(client *grail.Client, envName string, envNames []string, makeClient fun
 	editBody := NewEditor()
 	editBody.Blur()
 
-	infoMsg := "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Alt-2 saved · Ctrl-S save · Ctrl-P params · Ctrl-X export · Ctrl-E env · q quit"
+	infoMsg := "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Alt-2 saved · Alt-3 filters · Ctrl-F insert filter · Ctrl-S save · Ctrl-P params · Ctrl-X export · Ctrl-E env · q quit"
 	autoRun := false
 	// If a default saved search exists and resolves to a non-empty body,
 	// preload the editor with it and queue an auto-run for after Init().
@@ -176,6 +201,7 @@ func New(client *grail.Client, envName string, envNames []string, makeClient fun
 		savedQueries:   saved,
 		savedDefault:   defaultName,
 		savedEditBody:  editBody,
+		filters:        filters,
 		pendingAutoRun: autoRun,
 	}
 }
@@ -264,11 +290,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "alt+2":
 		return m.enterSavedView(), nil
+	case "alt+3":
+		return m.enterFiltersView(), nil
 	}
 
 	// Saved Searches view has its own dispatch and ignores modals.
 	if m.currentView == viewSaved {
 		return m.updateSavedView(msg)
+	}
+	if m.currentView == viewFilters {
+		return m.updateFiltersView(msg)
 	}
 
 	// If a modal is open, route to its handler first.
@@ -286,6 +317,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.updateSwitchEnv(msg)
 		case modalHelp:
 			next, cmd := m.updateHelp(msg)
+			return next, cmd
+		case modalPickFilter:
+			next, cmd := m.updatePickFilter(msg)
+			return next, cmd
+		case modalResolveFilter:
+			next, cmd := m.updateResolveFilter(msg)
 			return next, cmd
 		}
 	}
@@ -343,6 +380,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	case "ctrl+o":
 		return m.enterSavedView(), nil
+	case "ctrl+f":
+		if m.state != stateRunning {
+			return m.openPickFilter(), nil
+		}
+		return m, nil
 	case "ctrl+p":
 		if m.prepareTemplate() {
 			m.modal = modalTemplate
@@ -676,9 +718,11 @@ func (m *Model) applyLayout() {
 	}
 	editorH := 8
 	statusH := 1
-	// Subtractions account for: editor inner (editorH), status bar (statusH),
-	// 2 pane titles, and 4 border lines (top+bottom of each pane).
-	resultsH := m.height - editorH - statusH - 2 - 4
+	tabsH := 1
+	// Subtractions account for: tabs row (tabsH), editor inner (editorH),
+	// status bar (statusH), 1 pane title (results — the editor's title
+	// moved to the tabs row), and 4 border lines (top+bottom of each pane).
+	resultsH := m.height - tabsH - editorH - statusH - 1 - 4
 	if resultsH < 5 {
 		resultsH = 5
 	}
@@ -694,6 +738,9 @@ func (m *Model) applyLayout() {
 	m.detail.Height = resultsH
 	m.savedEditBody.SetWidth(innerW)
 	m.savedEditBody.SetHeight(editorH)
+	if m.filtersMode == filtersModeEditing {
+		m.layoutFilterEdit(innerW)
+	}
 	m.populateTable()
 	if m.detailKind == detailChart && len(m.chartRecords) > 0 {
 		m.setDetailContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height, m.chartPendingFrom, m.chartPendingTo))
@@ -713,6 +760,9 @@ func (m Model) View() string {
 	if m.currentView == viewSaved {
 		return m.viewSavedSearches()
 	}
+	if m.currentView == viewFilters {
+		return m.viewFilters()
+	}
 
 	if m.modal != modalNone {
 		switch m.modal {
@@ -728,19 +778,20 @@ func (m Model) View() string {
 			return m.viewSwitchEnv()
 		case modalHelp:
 			return m.viewHelp()
+		case modalPickFilter:
+			return m.viewPickFilter()
+		case modalResolveFilter:
+			return m.viewResolveFilter()
 		}
 	}
 
 	var sections []string
+	sections = append(sections, m.renderTabs())
 
-	editorTitle := fmt.Sprintf("Query%s [%s]", m.envSuffix(), m.editor.Mode())
 	editorBorder := paneBorder
-	editorTitleStyle := paneTitle
 	if m.focus == focusEditor {
 		editorBorder = paneBorderFocused
-		editorTitleStyle = paneTitleFocused
 	}
-	sections = append(sections, editorTitleStyle.Render(editorTitle))
 	sections = append(sections, editorBorder.Render(m.editor.View()))
 
 	if m.focus == focusDetail {
@@ -751,9 +802,9 @@ func (m Model) View() string {
 		sections = append(sections, paneTitleFocused.Render(title))
 		sections = append(sections, paneBorderFocused.Render(m.detail.View()))
 	} else {
-		title := "Results" + m.envSuffix()
+		title := "Results"
 		if m.rowCount > 0 {
-			title = fmt.Sprintf("Results%s (%d)", m.envSuffix(), m.rowCount)
+			title = fmt.Sprintf("Results (%d)", m.rowCount)
 		}
 		border := paneBorder
 		titleStyle := paneTitle
@@ -770,13 +821,59 @@ func (m Model) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
-// envSuffix renders ` [<envName>]` for use as a pane-title suffix, or "" if
-// no env name is set (e.g. the legacy single-env config path).
-func (m Model) envSuffix() string {
-	if m.envName == "" {
-		return ""
+// renderTabs draws the three view tabs in one row, highlighting the active
+// view. Right-aligned context (env name, vim mode) lives on the same row
+// since the per-view title would otherwise duplicate the tab name.
+func (m Model) renderTabs() string {
+	labels := []struct {
+		v    view
+		text string
+	}{
+		{viewQuery, "(1) Query"},
+		{viewSaved, "(2) Saved searches"},
+		{viewFilters, "(3) Filters"},
 	}
-	return " [" + m.envName + "]"
+	parts := make([]string, len(labels))
+	for i, l := range labels {
+		if l.v == m.currentView {
+			parts[i] = paneTitleFocused.Render(l.text)
+		} else {
+			parts[i] = paneTitle.Render(l.text)
+		}
+	}
+	left := strings.Join(parts, " ")
+
+	var rightParts []string
+	if m.envName != "" {
+		rightParts = append(rightParts, "env: "+m.envName)
+	}
+	if mode := m.activeEditorMode(); mode != "" {
+		rightParts = append(rightParts, mode)
+	}
+	right := ""
+	if len(rightParts) > 0 {
+		right = paneTitle.Render(strings.Join(rightParts, " · "))
+	}
+
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	return left + strings.Repeat(" ", gap) + right
+}
+
+// activeEditorMode returns the vim mode string of whichever editor is
+// currently in focus, or "" when no editor is. This drives the mode chip
+// shown on the tabs row so users always see INSERT/NORMAL when typing,
+// regardless of which view's editor is active.
+func (m Model) activeEditorMode() string {
+	switch {
+	case m.currentView == viewQuery && m.focus == focusEditor:
+		return m.editor.Mode().String()
+	case m.currentView == viewSaved && m.savedMode == savedModeEditing && m.savedEditFocus == savedEditFocusBody:
+		return m.savedEditBody.Mode().String()
+	}
+	return ""
 }
 
 func (m Model) statusLine() string {
@@ -796,7 +893,7 @@ func (m Model) statusLine() string {
 			left = okText.Render(m.infoMsg)
 		}
 	}
-	right := "Alt-Enter run · Ctrl-G chart · Alt-1/2 view · ? help · q quit"
+	right := "Alt-Enter run · Ctrl-G chart · Alt-1/2/3 view · ? help · q quit"
 	if m.focus == focusDetail {
 		if s := m.detailSearchStatus(); s != "" {
 			right = s

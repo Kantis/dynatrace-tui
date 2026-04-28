@@ -363,16 +363,12 @@ func (m Model) cycleSavedEditFocus(reverse bool) Model {
 
 func (m Model) viewSavedSearches() string {
 	var sections []string
+	sections = append(sections, m.renderTabs())
 
-	listFocused := m.savedMode == savedModeList
-	listTitle := "Saved searches"
-	listTitleStyle := paneTitle
 	listBorder := paneBorder
-	if listFocused {
-		listTitleStyle = paneTitleFocused
+	if m.savedMode == savedModeList {
 		listBorder = paneBorderFocused
 	}
-	sections = append(sections, listTitleStyle.Render(listTitle))
 	sections = append(sections, listBorder.Render(m.renderSavedList()))
 
 	if m.savedMode == savedModeEditing {

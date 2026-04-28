@@ -14,6 +14,8 @@ const (
 	modalExport
 	modalSwitchEnv
 	modalHelp
+	modalPickFilter
+	modalResolveFilter
 )
 
 var modalBox = lipgloss.NewStyle().
