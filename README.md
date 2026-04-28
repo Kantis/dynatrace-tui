@@ -121,6 +121,32 @@ group, matching vim's default behavior.
 No visual mode, ex commands (`:w`/`:q`), or search yet — ask if you
 want them.
 
+### Time-range picker
+
+`Ctrl-T` opens a modal with **two sections**: relative presets at the top, and
+absolute From/To text inputs below. **Tab / Shift-Tab** cycle between them.
+
+**Presets** (15m / 1h / 6h / 24h) — focus the preset list, pick with
+↑/↓, **Enter** to apply. Substitution priority on selection:
+
+1. Replace literal `$timeframe` if present.
+2. Else rewrite an existing `now()-<duration>` clause.
+3. Else inject `from:now()-<preset>` after the `fetch <table>`.
+
+**Absolute date / range** — Tab into the From input. Accepted formats:
+
+- `2026-04-28` (date only — defaults to start-of-day for *From*, end-of-day
+  for *To*)
+- `2026-04-28 09:00`
+- `2026-04-28T09:00:00`
+- Full RFC 3339 (`2026-04-28T09:00:00Z`)
+
+Press **Enter** while in From or To to apply. Empty *To* means "from-only" —
+existing `to:` clauses are left alone. Substitution priority is the same
+three-step `$from` / `$to` placeholders → existing clauses → injection.
+
+`$timeframe`, `$from`, `$to` are reserved — `Ctrl-P` does not prompt for them.
+
 ### Templates
 
 Templates work by writing `$name` placeholders in the DQL and pressing

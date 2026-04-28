@@ -59,6 +59,9 @@ type Model struct {
 	// Modal state
 	modal          modalKind
 	timeRangeIdx   int
+	timeRangeFocus int // 0 = preset list, 1 = from input, 2 = to input
+	timeFromInput  textinput.Model
+	timeToInput    textinput.Model
 	saveInput      textinput.Model
 	savedQueries   []SavedQuery
 	savedListIdx   int
@@ -211,6 +214,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+t":
 		m.modal = modalTimeRange
 		m.timeRangeIdx = 0
+		m.timeRangeFocus = 0
+		m.timeFromInput = newTimeInput("e.g. 2026-04-28 09:00")
+		m.timeToInput = newTimeInput("e.g. 2026-04-28 17:00 (empty = now)")
 		return m, nil
 	case "ctrl+s":
 		m.modal = modalSaveQuery
