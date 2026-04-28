@@ -78,7 +78,8 @@ type Model struct {
 	pendingChart   bool
 	detailKind     detailKind
 	chartRecords   grail.Records
-	detailPendingG bool // vim `gg` in the detail viewport
+	currentRecord  map[string]any // record currently shown in the detail viewport, kept so layout changes can re-wrap
+	detailPendingG bool           // vim `gg` in the detail viewport
 
 	// Chart-view nudge: from/to staged by the user but not yet re-run. Zero
 	// means "no pending value for that endpoint". Cleared whenever the chart
@@ -661,7 +662,8 @@ func (m *Model) openDetail() {
 	}
 	rec := m.records[cur]
 	m.detailKind = detailRecord
-	m.setDetailContent(renderRecordDetail(rec))
+	m.currentRecord = rec
+	m.setDetailContent(renderRecordDetail(rec, m.detail.Width))
 	m.detail.GotoTop()
 	m.focus = focusDetail
 }
@@ -695,6 +697,9 @@ func (m *Model) applyLayout() {
 	m.populateTable()
 	if m.detailKind == detailChart && len(m.chartRecords) > 0 {
 		m.setDetailContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height, m.chartPendingFrom, m.chartPendingTo))
+	}
+	if m.detailKind == detailRecord && m.currentRecord != nil {
+		m.setDetailContent(renderRecordDetail(m.currentRecord, m.detail.Width))
 	}
 }
 

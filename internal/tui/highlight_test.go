@@ -123,7 +123,7 @@ func TestRenderRecordDetailIncludesExpandedAndAnsi(t *testing.T) {
 		"timestamp": "2026-04-28T12:00:00Z",
 		"content":   `{"event":"login"}`,
 	}
-	out := renderRecordDetail(rec)
+	out := renderRecordDetail(rec, 0)
 	if !strings.Contains(out, "\x1b[") {
 		t.Errorf("expected ANSI codes in detail output")
 	}
@@ -136,4 +136,44 @@ func TestRenderRecordDetailIncludesExpandedAndAnsi(t *testing.T) {
 	if strings.Contains(out, `\"event\"`) {
 		t.Errorf("found escaped JSON — expansion didn't run")
 	}
+}
+
+func TestRenderRecordDetailWrapsLongLines(t *testing.T) {
+	rec := map[string]any{
+		"long": strings.Repeat("x", 200),
+	}
+	const width = 40
+	out := renderRecordDetail(rec, width)
+	// Strip ANSI before measuring so chroma's color codes don't inflate widths.
+	for _, line := range strings.Split(out, "\n") {
+		if w := lipglossWidth(line); w > width {
+			t.Errorf("line width %d exceeds wrap limit %d: %q", w, width, line)
+		}
+	}
+}
+
+// lipglossWidth measures the on-screen width of an ANSI-styled string by
+// stripping escapes and counting runes. Avoids pulling lipgloss into a test.
+func lipglossWidth(s string) int {
+	stripped := stripAnsi(s)
+	return len([]rune(stripped))
+}
+
+func stripAnsi(s string) string {
+	var b strings.Builder
+	in := false
+	for _, r := range s {
+		if r == 0x1b {
+			in = true
+			continue
+		}
+		if in {
+			if r == 'm' {
+				in = false
+			}
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }

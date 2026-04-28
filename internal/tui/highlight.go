@@ -7,6 +7,7 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // expandJSONStrings walks v and replaces any string value that itself contains
@@ -77,15 +78,21 @@ func highlightJSON(s string) string {
 }
 
 // renderRecordDetail produces the highlighted, JSON-expanded view of a single
-// record for the detail viewport.
-func renderRecordDetail(rec map[string]any) string {
+// record for the detail viewport. When width > 0 the output is hard-wrapped
+// to that width so long values stay visible without horizontal scroll. ANSI
+// escapes from chroma are preserved across the wrap.
+func renderRecordDetail(rec map[string]any, width int) string {
 	expanded := expandJSONStrings(rec)
 	pretty, err := json.MarshalIndent(expanded, "", "  ")
 	if err != nil {
 		// shouldn't happen — Grail returns a JSON-serializable map
 		return err.Error()
 	}
-	return highlightJSON(string(pretty))
+	out := highlightJSON(string(pretty))
+	if width > 0 {
+		out = ansi.Hardwrap(out, width, false)
+	}
+	return out
 }
 
 // highlightJSONCell returns s with chroma highlighting if it parses as a JSON
