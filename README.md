@@ -101,7 +101,7 @@ with `fetch ...` (e.g. `fetch events`) or with `|` are handled correctly.
 | `Ctrl-E` | Switch environment (when more than one is configured) |
 | `Ctrl-X` | Export results as JSON or CSV (all rows or current row) |
 | `Ctrl-R` | Redo (vim-style) — pairs with `u` for undo in normal mode |
-| `q` | Quit (when not editing text) |
+| `q` | Close detail view, or quit when results are focused |
 | `Ctrl-C` | Cancel running query, or quit when idle |
 
 \* Most terminals don't distinguish `Ctrl-Enter` from plain `Enter`
@@ -136,6 +136,18 @@ group, matching vim's default behavior.
 
 No visual mode, ex commands (`:w`/`:q`), or search yet — ask if you
 want them.
+
+### Detail view
+
+`Enter` on a result row opens its formatted JSON (or, after `Ctrl-G`, the
+chart) in a scrollable pane. While the detail pane is focused:
+
+| Key | Action |
+| --- | --- |
+| `↑` `↓` / `j` `k` / `PgUp` `PgDn` | Scroll |
+| `gg` | Jump to top |
+| `G` | Jump to bottom |
+| `q` / `Esc` | Close and return to results |
 
 ### Saved Searches view
 
@@ -179,8 +191,6 @@ Press **Enter** while in From or To to apply. Empty *To* means "from-only" —
 existing `to:` clauses are left alone. Substitution priority is the same
 three-step `$from` / `$to` placeholders → existing clauses → injection.
 
-`$timeframe`, `$from`, `$to` are reserved — `Ctrl-P` does not prompt for them.
-
 ### Templates
 
 Templates work by writing `$name` placeholders in the DQL and pressing
@@ -191,7 +201,13 @@ fetch logs, from:now()-1h
 | filter dt.entity.host == "$host" and loglevel == "$level"
 ```
 
-Exports land in the current working directory as
+`$timeframe`, `$from`, and `$to` are reserved for the time-range picker —
+`Ctrl-P` does not prompt for them.
+
+### Export
+
+`Ctrl-X` opens a four-option modal: all records or the current row, as JSON
+or CSV. Files land in the current working directory as
 `dttui-export-<timestamp>.<json|csv>`.
 
 ## Configuration
