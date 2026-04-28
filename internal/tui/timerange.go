@@ -60,7 +60,7 @@ func (m Model) updateTimeRange(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.cycleTimeFocus(false), textinput.Blink
 	case "shift+tab":
 		return m.cycleTimeFocus(true), textinput.Blink
-	case "ctrl+@", "ctrl+enter", "alt+enter":
+	case "enter", "ctrl+@", "ctrl+enter", "alt+enter":
 		return m.applyTimeRange()
 	}
 
@@ -81,18 +81,13 @@ func (m Model) updateTimeRange(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "up", "k":
 		if *idx > 0 {
 			*idx--
+			applyPickToInput(m.focusedInput(), picks, *idx)
 		}
 		return m, nil
 	case "down", "j":
 		if *idx < len(picks)-1 {
 			*idx++
-		}
-		return m, nil
-	case "enter":
-		if len(picks) > 0 && *idx >= 0 && *idx < len(picks) {
-			input := m.focusedInput()
-			input.SetValue(picks[*idx].value)
-			input.SetCursor(len(picks[*idx].value))
+			applyPickToInput(m.focusedInput(), picks, *idx)
 		}
 		return m, nil
 	}
@@ -126,6 +121,14 @@ func (m *Model) focusedPickIdx() *int {
 		return &m.timeFromIdx
 	}
 	return &m.timeToIdx
+}
+
+func applyPickToInput(input *textinput.Model, picks []timePick, idx int) {
+	if input == nil || idx < 0 || idx >= len(picks) {
+		return
+	}
+	input.SetValue(picks[idx].value)
+	input.SetCursor(len(picks[idx].value))
 }
 
 func (m Model) cycleTimeFocus(reverse bool) Model {
@@ -312,7 +315,7 @@ func (m Model) viewTimeRange() string {
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, fromCol, colSep, toCol))
 	b.WriteString("\n\n")
 
-	b.WriteString(statusBar.Render("Tab switch · j/k pick · Enter apply pick · h/H ±1h · m/M ±1m · s/S ±1s · d/D ±1d · Ctrl-Enter run · Esc cancel"))
+	b.WriteString(statusBar.Render("Tab switch · j/k pick · h/H ±1h · m/M ±1m · s/S ±1s · d/D ±1d · Enter run · Esc cancel"))
 	return m.renderModalOverlay(b.String())
 }
 
