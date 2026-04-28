@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -490,7 +491,11 @@ func (m *Model) populateTable() {
 	for i, rec := range m.records {
 		row := make(tableRow, len(cols))
 		for j, c := range cols {
-			row[j] = highlightJSONCell(stringCell(rec[c]))
+			cell := stringCell(rec[c])
+			if c == "timestamp" {
+				cell = formatTimestampCell(cell)
+			}
+			row[j] = highlightJSONCell(cell)
 		}
 		rows[i] = row
 	}
@@ -685,7 +690,7 @@ func distributeWidths(cols []string, total int) []int {
 	for i, c := range cols {
 		switch c {
 		case "timestamp":
-			widths[i] = 30
+			widths[i] = 25
 		case "loglevel", "status":
 			widths[i] = 8
 		}
@@ -725,4 +730,17 @@ func stringCell(v any) string {
 		b, _ := json.Marshal(x)
 		return string(b)
 	}
+}
+
+// formatTimestampCell renders RFC3339 timestamps as `YYYY-MM-DD HH:MM:SS.mmm`
+// (millisecond precision, space separator). Non-timestamp strings pass through.
+func formatTimestampCell(s string) string {
+	if s == "" {
+		return s
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return s
+	}
+	return t.Format("2006-01-02 15:04:05.000")
 }
