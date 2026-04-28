@@ -63,8 +63,9 @@ var helpSections = []helpSection{
 		{"q / Esc", "close detail"},
 	}},
 	{"Chart view (narrow window)", []helpEntry{
-		{"h / m / s / d", "push from + 1h / 1m / 1s / 1d"},
-		{"H / M / S / D", "pull to − 1h / 1m / 1s / 1d"},
+		{"h / m / s / d", "stage from + 1h / 1m / 1s / 1d"},
+		{"H / M / S / D", "stage to − 1h / 1m / 1s / 1d"},
+		{"Ctrl-G", "re-run with staged range"},
 	}},
 	{"Saved searches view (Alt-2)", []helpEntry{
 		{"↑ / ↓ (or k / j)", "move cursor"},

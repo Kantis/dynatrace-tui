@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kantis/dynatrace-tui/internal/grail"
 )
@@ -16,7 +17,7 @@ func TestRenderChartHasBars(t *testing.T) {
 			"end":   "2026-04-28T12:07:00.000Z",
 		},
 	}
-	out := renderChart(grail.Records{rec}, 60, 12)
+	out := renderChart(grail.Records{rec}, 60, 12, time.Time{}, time.Time{})
 
 	if !strings.Contains(out, "█") {
 		t.Errorf("expected at least one full block in chart output, got:\n%s", out)
@@ -38,7 +39,7 @@ func TestRenderChartHandlesNilSamples(t *testing.T) {
 			"end":   "2026-04-28T12:02:00Z",
 		},
 	}
-	out := renderChart(grail.Records{rec}, 40, 10)
+	out := renderChart(grail.Records{rec}, 40, 10, time.Time{}, time.Time{})
 	if !strings.Contains(out, "max 2") {
 		t.Errorf("nil samples should be treated as 0; got:\n%s", out)
 	}
@@ -53,7 +54,7 @@ func TestRenderChartHandlesAllZero(t *testing.T) {
 			"end":   "2026-04-28T12:03:00Z",
 		},
 	}
-	out := renderChart(grail.Records{rec}, 40, 10)
+	out := renderChart(grail.Records{rec}, 40, 10, time.Time{}, time.Time{})
 	if strings.Contains(out, "█") {
 		t.Errorf("all-zero series should render no bars; got:\n%s", out)
 	}
@@ -68,7 +69,7 @@ func TestRenderChartFallsBackToFirstNumericSeries(t *testing.T) {
 			"end":   "2026-04-28T12:03:00Z",
 		},
 	}
-	out := renderChart(grail.Records{rec}, 40, 10)
+	out := renderChart(grail.Records{rec}, 40, 10, time.Time{}, time.Time{})
 	if !strings.Contains(out, "avg(latency)") {
 		t.Errorf("expected series label, got:\n%s", out)
 	}
@@ -108,10 +109,74 @@ func TestRenderChartFormatsNumericInterval(t *testing.T) {
 			"end":   "2026-04-28T12:03:00Z",
 		},
 	}
-	out := renderChart(grail.Records{rec}, 40, 10)
+	out := renderChart(grail.Records{rec}, 40, 10, time.Time{}, time.Time{})
 	if !strings.Contains(out, "interval 1m") {
 		t.Errorf("expected numeric nanosecond interval to render as 1m, got:\n%s", out)
 	}
+}
+
+func TestRenderChartShowsPendingFooter(t *testing.T) {
+	chartStart := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	chartEnd := chartStart.Add(time.Hour)
+	rec := map[string]any{
+		"count":    repeatFloats(1.0, 60),
+		"interval": "PT1M",
+		"timeframe": map[string]any{
+			"start": chartStart.Format(time.RFC3339),
+			"end":   chartEnd.Format(time.RFC3339),
+		},
+	}
+	pending := chartStart.Add(30 * time.Minute)
+	out := renderChart(grail.Records{rec}, 80, 14, pending, time.Time{})
+
+	if !strings.Contains(out, "pending: from") {
+		t.Errorf("expected 'pending: from' footer when pending is set, got:\n%s", out)
+	}
+	if !strings.Contains(out, pending.Local().Format("Jan 2 15:04")) {
+		t.Errorf("expected pending value %q in output, got:\n%s",
+			pending.Local().Format("Jan 2 15:04"), out)
+	}
+	if !strings.Contains(out, chartStart.Local().Format("Jan 2 15:04")) {
+		t.Errorf("expected original from-label to remain, got:\n%s", out)
+	}
+	if !strings.Contains(out, chartEnd.Local().Format("Jan 2 15:04")) {
+		t.Errorf("expected original to-label to remain, got:\n%s", out)
+	}
+}
+
+func TestTimeToCol(t *testing.T) {
+	start := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	end := start.Add(time.Hour)
+	cases := []struct {
+		name  string
+		t     time.Time
+		ncols int
+		want  int
+	}{
+		{"midpoint of 60", start.Add(30 * time.Minute), 60, 30},
+		{"start clamps to 0", start, 60, 0},
+		{"end clamps to ncols-1", end, 60, 59},
+		{"before start clamps to 0", start.Add(-time.Hour), 60, 0},
+		{"after end clamps to last", end.Add(time.Hour), 60, 59},
+		{"zero time returns -1", time.Time{}, 60, -1},
+		{"ncols 0 returns -1", start.Add(30 * time.Minute), 0, -1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := timeToCol(tc.t, start, end, tc.ncols)
+			if got != tc.want {
+				t.Errorf("got %d want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func repeatFloats(v float64, n int) []any {
+	out := make([]any, n)
+	for i := range out {
+		out[i] = v
+	}
+	return out
 }
 
 func TestDownsample(t *testing.T) {

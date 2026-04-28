@@ -80,6 +80,12 @@ type Model struct {
 	chartRecords   grail.Records
 	detailPendingG bool // vim `gg` in the detail viewport
 
+	// Chart-view nudge: from/to staged by the user but not yet re-run. Zero
+	// means "no pending value for that endpoint". Cleared whenever the chart
+	// successfully re-runs.
+	chartPendingFrom time.Time
+	chartPendingTo   time.Time
+
 	// Detail viewport search (`/`)
 	detailRawContent    string
 	detailSearchInput   textinput.Model
@@ -562,11 +568,13 @@ func (m Model) applyResult(resp *grail.Response) Model {
 		if m.pendingChart {
 			m.pendingChart = false
 			m.chartRecords = records
+			m.chartPendingFrom = time.Time{}
+			m.chartPendingTo = time.Time{}
 			m.records = nil
 			m.rowCount = 0
 			m.populateTable()
 			m.detailKind = detailChart
-			m.setDetailContent(renderChart(records, m.detail.Width, m.detail.Height))
+			m.setDetailContent(renderChart(records, m.detail.Width, m.detail.Height, m.chartPendingFrom, m.chartPendingTo))
 			m.detail.GotoTop()
 			m.focus = focusDetail
 			m.editor.Blur()
@@ -686,7 +694,7 @@ func (m *Model) applyLayout() {
 	m.savedEditBody.SetHeight(editorH)
 	m.populateTable()
 	if m.detailKind == detailChart && len(m.chartRecords) > 0 {
-		m.setDetailContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height))
+		m.setDetailContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height, m.chartPendingFrom, m.chartPendingTo))
 	}
 }
 

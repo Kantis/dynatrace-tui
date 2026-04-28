@@ -46,18 +46,29 @@ func chartNudgeDelta(key string) (time.Duration, chartEndpoint, bool) {
 	return 0, 0, false
 }
 
-// nudgeChartTimeframe rewrites the editor's from:/to: clauses based on the
-// chart's current timeframe and re-runs the chart. Returns handled=false when
-// the chart has no usable timeframe or the nudge would invert the window.
+// nudgeChartTimeframe rewrites the editor's from:/to: clauses and stages the
+// new range as "pending" — the chart re-renders with the pending values
+// highlighted but does not re-run the query; the user re-runs explicitly
+// (Ctrl-G). Subsequent nudges accumulate against the pending values.
+// Returns handled=false when the chart has no usable timeframe.
 func (m Model) nudgeChartTimeframe(endpoint chartEndpoint, delta time.Duration) (Model, tea.Cmd, bool) {
 	if len(m.chartRecords) == 0 {
 		return m, nil, false
 	}
 	startStr, endStr := pickTimeframe(m.chartRecords[0])
-	from, fromOK := parseISOTime(startStr)
-	to, toOK := parseISOTime(endStr)
+	chartFrom, fromOK := parseISOTime(startStr)
+	chartTo, toOK := parseISOTime(endStr)
 	if !fromOK || !toOK {
 		return m, nil, false
+	}
+
+	from := m.chartPendingFrom
+	if from.IsZero() {
+		from = chartFrom
+	}
+	to := m.chartPendingTo
+	if to.IsZero() {
+		to = chartTo
 	}
 
 	if endpoint == nudgeFrom {
@@ -65,17 +76,24 @@ func (m Model) nudgeChartTimeframe(endpoint chartEndpoint, delta time.Duration) 
 	} else {
 		to = to.Add(delta)
 	}
-	if !from.Before(to) {
-		m.infoMsg = "nudge would invert the time range"
-		m.state = stateIdle
-		return m, nil, true
-	}
 
-	newDQL := dql.SubstituteAbsolute(dql.PrependFetch(m.editor.Value()), from, to, true)
+	m.chartPendingFrom = from
+	m.chartPendingTo = to
+
+	// Swap so the materialised DQL always has from < to. The pending values
+	// in the model stay in the user's nudged order — only what we write to
+	// the editor (and what the next run will use) is normalised.
+	dqlFrom, dqlTo := from, to
+	if dqlFrom.After(dqlTo) {
+		dqlFrom, dqlTo = dqlTo, dqlFrom
+	}
+	newDQL := dql.SubstituteAbsolute(dql.PrependFetch(m.editor.Value()), dqlFrom, dqlTo, true)
 	m.editor.SetValue(dql.StripFetch(newDQL))
 
-	next, cmd := m.runChart()
-	return next.(Model), cmd, true
+	m.setDetailContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height, m.chartPendingFrom, m.chartPendingTo))
+	m.infoMsg = "pending range — Ctrl-G to apply"
+	m.state = stateIdle
+	return m, nil, true
 }
 
 func parseISOTime(s string) (time.Time, bool) {
@@ -94,7 +112,12 @@ func parseISOTime(s string) (time.Time, bool) {
 // The numeric column is an array of length N (one per bucket); `timeframe` is
 // `{start, end}`; `interval` is either an ISO-8601 string ("PT1M") or a
 // numeric nanosecond count.
-func renderChart(records grail.Records, width, height int) string {
+//
+// pendingFrom/pendingTo are non-zero when the user has nudged the timeframe
+// but not yet re-run the query — those positions are drawn as highlighted
+// vertical markers in the bar grid and axis, and listed in a footer line, so
+// the user can see where the staged from/to fall against the current data.
+func renderChart(records grail.Records, width, height int, pendingFrom, pendingTo time.Time) string {
 	if len(records) == 0 {
 		return chartHint("no time series data — try a query that returns rows")
 	}
@@ -107,13 +130,22 @@ func renderChart(records grail.Records, width, height int) string {
 	start, end := pickTimeframe(rec)
 	interval := rec["interval"]
 
+	chartFrom, _ := parseISOTime(start)
+	chartTo, _ := parseISOTime(end)
+	hasPending := !pendingFrom.IsZero() || !pendingTo.IsZero()
+
 	if width < 20 {
 		width = 20
 	}
 	if height < 6 {
 		height = 6
 	}
-	bodyH := height - 4 // header line, axis line, time-label line, footer line
+	// header + axis + time-label + footer lines = 4; pending footer adds one.
+	reserved := 4
+	if hasPending {
+		reserved = 5
+	}
+	bodyH := height - reserved
 	if bodyH < 3 {
 		bodyH = 3
 	}
@@ -157,21 +189,92 @@ func renderChart(records grail.Records, width, height int) string {
 	}
 
 	bar := lipgloss.NewStyle().Foreground(colorAccent)
+	pendingFromCol := timeToCol(pendingFrom, chartFrom, chartTo, len(series))
+	pendingToCol := timeToCol(pendingTo, chartFrom, chartTo, len(series))
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("max %s · total %s · interval %s · %d buckets",
 		fmtCount(max), fmtCount(total), prettyInterval(interval), len(counts)))
 	b.WriteByte('\n')
 	for _, row := range grid {
-		b.WriteString(bar.Render(string(row)))
+		b.WriteString(renderRowWithMarkers(row, bar, pendingNudgeStyle, pendingFromCol, pendingToCol))
 		b.WriteByte('\n')
 	}
-	b.WriteString(strings.Repeat("─", len(series)))
+	axisRow := []rune(strings.Repeat("─", len(series)))
+	b.WriteString(renderRowWithMarkers(axisRow, lipgloss.NewStyle(), pendingNudgeStyle, pendingFromCol, pendingToCol))
 	b.WriteByte('\n')
-	b.WriteString(axisLabel(start, end, len(series)))
+	b.WriteString(spaceBetween(shortTime(start), shortTime(end), len(series)))
 	b.WriteByte('\n')
+	if hasPending {
+		b.WriteString(statusBar.Render("pending: " + pendingFooter(pendingFrom, pendingTo)))
+		b.WriteByte('\n')
+	}
 	b.WriteString(statusBar.Render("series: " + label))
 	return b.String()
+}
+
+// timeToCol maps a wall-clock time onto a chart column index in [0, ncols).
+// Returns -1 when the inputs don't form a valid window or t is unset.
+func timeToCol(t, start, end time.Time, ncols int) int {
+	if t.IsZero() || start.IsZero() || end.IsZero() || ncols <= 0 || !end.After(start) {
+		return -1
+	}
+	pos := float64(t.Sub(start)) / float64(end.Sub(start)) * float64(ncols)
+	col := int(math.Round(pos))
+	if col < 0 {
+		col = 0
+	}
+	if col >= ncols {
+		col = ncols - 1
+	}
+	return col
+}
+
+// renderRowWithMarkers paints `row` with `base` style, switching to `marker`
+// at the columns listed in `markerCols` (negative entries are ignored). The
+// row is emitted in contiguous same-style segments to keep the ANSI overhead
+// proportional to the number of marker columns, not the row length.
+func renderRowWithMarkers(row []rune, base, marker lipgloss.Style, markerCols ...int) string {
+	if len(row) == 0 {
+		return ""
+	}
+	isMarker := func(j int) bool {
+		for _, c := range markerCols {
+			if c == j {
+				return true
+			}
+		}
+		return false
+	}
+	var b strings.Builder
+	j := 0
+	for j < len(row) {
+		startJ := j
+		m := isMarker(j)
+		for j < len(row) && isMarker(j) == m {
+			j++
+		}
+		seg := string(row[startJ:j])
+		if m {
+			b.WriteString(marker.Render(seg))
+		} else {
+			b.WriteString(base.Render(seg))
+		}
+	}
+	return b.String()
+}
+
+// pendingFooter renders "from <X> · to <Y>" with each non-zero value
+// highlighted. Skips the part for whichever endpoint is unset.
+func pendingFooter(pendingFrom, pendingTo time.Time) string {
+	parts := []string{}
+	if !pendingFrom.IsZero() {
+		parts = append(parts, "from "+pendingNudgeStyle.Render(pendingFrom.Local().Format("Jan 2 15:04")))
+	}
+	if !pendingTo.IsZero() {
+		parts = append(parts, "to "+pendingNudgeStyle.Render(pendingTo.Local().Format("Jan 2 15:04")))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func chartHint(msg string) string {
@@ -248,14 +351,15 @@ func downsample(s []float64, cols int) []float64 {
 	return out
 }
 
-func axisLabel(start, end string, width int) string {
-	s := shortTime(start)
-	e := shortTime(end)
-	gap := width - len(s) - len(e)
+// spaceBetween joins start and end with whitespace so the rendered visual width
+// matches `width`. It uses lipgloss.Width so styled (ANSI-coloured) labels are
+// measured by visible glyph count, not by raw byte length.
+func spaceBetween(start, end string, width int) string {
+	gap := width - lipgloss.Width(start) - lipgloss.Width(end)
 	if gap < 1 {
-		return s + "  " + e
+		return start + "  " + end
 	}
-	return s + strings.Repeat(" ", gap) + e
+	return start + strings.Repeat(" ", gap) + end
 }
 
 func shortTime(s string) string {
