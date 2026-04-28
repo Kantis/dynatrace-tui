@@ -101,6 +101,7 @@ type Model struct {
 	savedDefault   string // name of the saved search auto-loaded on startup
 	savedListIdx   int
 	pendingAutoRun bool // run the editor body on first event after startup
+	silentRun      bool // suppress the post-result focus shift to the results table (used by the startup auto-run)
 	// Saved searches view (Alt-2)
 	savedMode             savedSearchesMode
 	savedEditNameInput    textinput.Model
@@ -240,6 +241,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.pendingAutoRun = false
+		m.silentRun = true
 		return m.runQuery()
 	}
 
@@ -536,6 +538,8 @@ func (m Model) applyResult(resp *grail.Response) Model {
 		m.cancel()
 		m.cancel = nil
 	}
+	silent := m.silentRun
+	m.silentRun = false
 	switch resp.State {
 	case grail.StateSucceeded:
 		records := grail.Records{}
@@ -563,7 +567,7 @@ func (m Model) applyResult(resp *grail.Response) Model {
 		m.rowCount = len(m.records)
 		m.infoMsg = fmt.Sprintf("%d records", m.rowCount)
 		m.populateTable()
-		if m.rowCount > 0 {
+		if m.rowCount > 0 && !silent {
 			m.focus = focusResults
 			m.editor.Blur()
 			m.table.Focus()
