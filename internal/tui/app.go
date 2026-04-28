@@ -421,7 +421,9 @@ func (m *Model) applyLayout() {
 	}
 	editorH := 8
 	statusH := 1
-	resultsH := m.height - editorH - statusH - 4 // borders
+	// Subtractions account for: editor inner (editorH), status bar (statusH),
+	// 2 pane titles, and 4 border lines (top+bottom of each pane).
+	resultsH := m.height - editorH - statusH - 2 - 4
 	if resultsH < 5 {
 		resultsH = 5
 	}
