@@ -88,6 +88,12 @@ type Model struct {
 	chartPendingFrom time.Time
 	chartPendingTo   time.Time
 
+	// Chart-view focus: which endpoint Tab-toggle currently targets, and
+	// whether the blink highlight is currently visible. The blink toggles
+	// via chartBlinkMsg ticks while the chart detail is focused.
+	chartFocusEndpoint chartEndpoint
+	chartFocusBlinkOn  bool
+
 	// Detail viewport search (`/`)
 	detailRawContent    string
 	detailSearchInput   textinput.Model
@@ -247,7 +253,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancel = cancel
 			return m, pollCmd(ctx, m.client, msg.resp.RequestToken)
 		}
-		return m.applyResult(msg.resp), nil
+		return m.applyResult(msg.resp)
 
 	case pollMsg:
 		if msg.err != nil {
@@ -263,11 +269,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.endWithError(msg.err), nil
 		}
-		return m.applyResult(msg.resp), nil
+		return m.applyResult(msg.resp)
 
 	case cancelDoneMsg:
 		// no-op; UI already updated when ctx was cancelled
 		return m, nil
+
+	case chartBlinkMsg:
+		if m.focus != focusDetail || m.detailKind != detailChart {
+			return m, nil
+		}
+		m.chartFocusBlinkOn = !m.chartFocusBlinkOn
+		m.setDetailContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height,
+			m.chartPendingFrom, m.chartPendingTo, m.chartFocusEndpoint, m.chartFocusBlinkOn))
+		return m, chartBlinkCmd()
 
 	case autoRunMsg:
 		if !m.pendingAutoRun {
@@ -332,6 +347,29 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "?" && !(m.focus == focusEditor && m.editor.Mode() == modeInsert) {
 		m.modal = modalHelp
 		return m, nil
+	}
+
+	// Chart detail view intercepts Tab (toggle from/to focus) and Enter
+	// (re-run with the staged range) before the global handlers can claim
+	// them for focus cycling / query execution.
+	if m.focus == focusDetail && m.detailKind == detailChart {
+		switch msg.String() {
+		case "tab", "shift+tab":
+			if m.chartFocusEndpoint == nudgeFrom {
+				m.chartFocusEndpoint = nudgeTo
+			} else {
+				m.chartFocusEndpoint = nudgeFrom
+			}
+			m.chartFocusBlinkOn = true
+			m.setDetailContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height,
+				m.chartPendingFrom, m.chartPendingTo, m.chartFocusEndpoint, m.chartFocusBlinkOn))
+			return m, nil
+		case "enter":
+			if m.state != stateRunning && (!m.chartPendingFrom.IsZero() || !m.chartPendingTo.IsZero()) {
+				return m.runChart()
+			}
+			return m, nil
+		}
 	}
 
 	switch msg.String() {
@@ -431,12 +469,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			next, cmd := m.updateDetailSearchInput(msg)
 			return next, cmd
 		}
-		// Chart-only: h/H/m/M/s/S/d/D nudge from/to to narrow the window.
-		// Gated on stateIdle so we don't stack queries while one is in flight.
+		// Chart-only: h/H/m/M/s/S/d/D nudge the focused endpoint (Tab
+		// toggles which is focused). Gated on stateIdle so we don't stack
+		// queries while one is in flight.
 		if m.detailKind == detailChart && m.state != stateRunning {
-			if delta, endpoint, ok := chartNudgeDelta(msg.String()); ok {
+			if delta, ok := chartNudgeDelta(msg.String()); ok {
 				m.detailPendingG = false
-				next, cmd, handled := m.nudgeChartTimeframe(endpoint, delta)
+				next, cmd, handled := m.nudgeChartTimeframe(delta)
 				if handled {
 					return next, cmd
 				}
@@ -593,7 +632,7 @@ func (m Model) endWithError(err error) Model {
 	return m
 }
 
-func (m Model) applyResult(resp *grail.Response) Model {
+func (m Model) applyResult(resp *grail.Response) (Model, tea.Cmd) {
 	if m.cancel != nil {
 		m.cancel()
 		m.cancel = nil
@@ -609,6 +648,7 @@ func (m Model) applyResult(resp *grail.Response) Model {
 		m.state = stateIdle
 		m.errMsg = ""
 		if m.pendingChart {
+			wasInChart := m.focus == focusDetail && m.detailKind == detailChart
 			m.pendingChart = false
 			m.chartRecords = records
 			m.chartPendingFrom = time.Time{}
@@ -617,13 +657,19 @@ func (m Model) applyResult(resp *grail.Response) Model {
 			m.rowCount = 0
 			m.populateTable()
 			m.detailKind = detailChart
-			m.setDetailContent(renderChart(records, m.detail.Width, m.detail.Height, m.chartPendingFrom, m.chartPendingTo))
+			m.chartFocusEndpoint = nudgeFrom
+			m.chartFocusBlinkOn = true
+			m.setDetailContent(renderChart(records, m.detail.Width, m.detail.Height,
+				m.chartPendingFrom, m.chartPendingTo, m.chartFocusEndpoint, m.chartFocusBlinkOn))
 			m.detail.GotoTop()
 			m.focus = focusDetail
 			m.editor.Blur()
 			m.table.Blur()
-			m.infoMsg = "chart ready (Esc to close)"
-			return m
+			m.infoMsg = "chart ready — Tab switch · h/m/s/d nudge · Enter run · Esc close"
+			if wasInChart {
+				return m, nil
+			}
+			return m, chartBlinkCmd()
 		}
 		m.records = records
 		m.rowCount = len(m.records)
@@ -645,7 +691,7 @@ func (m Model) applyResult(resp *grail.Response) Model {
 		m.state = stateIdle
 		m.infoMsg = "cancelled"
 	}
-	return m
+	return m, nil
 }
 
 // populateTable picks a sensible column set from the records and pushes rows in.
@@ -743,7 +789,8 @@ func (m *Model) applyLayout() {
 	}
 	m.populateTable()
 	if m.detailKind == detailChart && len(m.chartRecords) > 0 {
-		m.setDetailContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height, m.chartPendingFrom, m.chartPendingTo))
+		m.setDetailContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height,
+			m.chartPendingFrom, m.chartPendingTo, m.chartFocusEndpoint, m.chartFocusBlinkOn))
 	}
 	if m.detailKind == detailRecord && m.currentRecord != nil {
 		m.setDetailContent(renderRecordDetail(m.currentRecord, m.detail.Width))

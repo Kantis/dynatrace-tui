@@ -63,10 +63,11 @@ var helpSections = []helpSection{
 		{"gg / G", "top / bottom"},
 		{"q / Esc", "close detail"},
 	}},
-	{"Chart view (narrow window)", []helpEntry{
-		{"h / m / s / d", "stage from + 1h / 1m / 1s / 1d"},
-		{"H / M / S / D", "stage to − 1h / 1m / 1s / 1d"},
-		{"Ctrl-G", "re-run with staged range"},
+	{"Chart view (nudge timeframe)", []helpEntry{
+		{"Tab", "toggle from / to focus (focused endpoint blinks)"},
+		{"h / m / s / d", "advance focused endpoint by 1h / 1m / 1s / 1d"},
+		{"H / M / S / D", "rewind focused endpoint by 1h / 1m / 1s / 1d"},
+		{"Enter / Ctrl-G", "re-run with staged range"},
 	}},
 	{"Saved searches view (Alt-2)", []helpEntry{
 		{"↑ / ↓ (or k / j)", "move cursor"},

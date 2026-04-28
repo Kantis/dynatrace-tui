@@ -22,37 +22,50 @@ const (
 	nudgeTo
 )
 
-// chartNudgeDelta maps a key to a (delta, endpoint) pair. Lowercase keys push
-// `from` forward; uppercase keys pull `to` backward — both narrow the window
-// toward the middle so the user can zoom in around an interesting feature.
-func chartNudgeDelta(key string) (time.Duration, chartEndpoint, bool) {
+// chartBlinkInterval is how often the focused-endpoint highlight toggles.
+// Half-second feels alive without being distracting.
+const chartBlinkInterval = 500 * time.Millisecond
+
+// chartBlinkMsg is dispatched on each blink interval to toggle the
+// focused-endpoint highlight.
+type chartBlinkMsg struct{}
+
+func chartBlinkCmd() tea.Cmd {
+	return tea.Tick(chartBlinkInterval, func(time.Time) tea.Msg { return chartBlinkMsg{} })
+}
+
+// chartNudgeDelta maps a single-key binding to a duration delta. Lowercase
+// advances time, uppercase rewinds. The endpoint to apply to comes from the
+// model's chartFocusEndpoint, which the user toggles with Tab.
+func chartNudgeDelta(key string) (time.Duration, bool) {
 	switch key {
 	case "h":
-		return time.Hour, nudgeFrom, true
+		return time.Hour, true
 	case "H":
-		return -time.Hour, nudgeTo, true
+		return -time.Hour, true
 	case "m":
-		return time.Minute, nudgeFrom, true
+		return time.Minute, true
 	case "M":
-		return -time.Minute, nudgeTo, true
+		return -time.Minute, true
 	case "s":
-		return time.Second, nudgeFrom, true
+		return time.Second, true
 	case "S":
-		return -time.Second, nudgeTo, true
+		return -time.Second, true
 	case "d":
-		return 24 * time.Hour, nudgeFrom, true
+		return 24 * time.Hour, true
 	case "D":
-		return -24 * time.Hour, nudgeTo, true
+		return -24 * time.Hour, true
 	}
-	return 0, 0, false
+	return 0, false
 }
 
 // nudgeChartTimeframe rewrites the editor's from:/to: clauses and stages the
 // new range as "pending" — the chart re-renders with the pending values
 // highlighted but does not re-run the query; the user re-runs explicitly
-// (Ctrl-G). Subsequent nudges accumulate against the pending values.
+// (Enter or Ctrl-G). Subsequent nudges accumulate against the pending values.
+// The endpoint nudged is whichever has Tab focus.
 // Returns handled=false when the chart has no usable timeframe.
-func (m Model) nudgeChartTimeframe(endpoint chartEndpoint, delta time.Duration) (Model, tea.Cmd, bool) {
+func (m Model) nudgeChartTimeframe(delta time.Duration) (Model, tea.Cmd, bool) {
 	if len(m.chartRecords) == 0 {
 		return m, nil, false
 	}
@@ -72,7 +85,7 @@ func (m Model) nudgeChartTimeframe(endpoint chartEndpoint, delta time.Duration) 
 		to = chartTo
 	}
 
-	if endpoint == nudgeFrom {
+	if m.chartFocusEndpoint == nudgeFrom {
 		from = from.Add(delta)
 	} else {
 		to = to.Add(delta)
@@ -91,8 +104,9 @@ func (m Model) nudgeChartTimeframe(endpoint chartEndpoint, delta time.Duration) 
 	newDQL := dql.SubstituteAbsolute(dql.PrependFetch(m.editor.Value()), dqlFrom, dqlTo, true)
 	m.editor.SetValue(dql.StripFetch(newDQL))
 
-	m.setDetailContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height, m.chartPendingFrom, m.chartPendingTo))
-	m.infoMsg = "pending range — Ctrl-G to apply"
+	m.setDetailContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height,
+		m.chartPendingFrom, m.chartPendingTo, m.chartFocusEndpoint, m.chartFocusBlinkOn))
+	m.infoMsg = "pending range — Enter to apply"
 	m.state = stateIdle
 	return m, nil, true
 }
@@ -118,7 +132,12 @@ func parseISOTime(s string) (time.Time, bool) {
 // but not yet re-run the query — those positions are drawn as highlighted
 // vertical markers in the bar grid and axis, and listed in a footer line, so
 // the user can see where the staged from/to fall against the current data.
-func renderChart(records grail.Records, width, height int, pendingFrom, pendingTo time.Time) string {
+//
+// focus identifies which endpoint Tab currently targets; the column for that
+// endpoint (its pending value if set, otherwise the chart's start/end
+// extremity) is rendered with the marker style only when blinkOn is true,
+// producing a blinking column the user can navigate to.
+func renderChart(records grail.Records, width, height int, pendingFrom, pendingTo time.Time, focus chartEndpoint, blinkOn bool) string {
 	if len(records) == 0 {
 		return chartHint("no time series data — try a query that returns rows")
 	}
@@ -141,11 +160,8 @@ func renderChart(records grail.Records, width, height int, pendingFrom, pendingT
 	if height < 6 {
 		height = 6
 	}
-	// header + axis + time-label + footer lines = 4; pending footer adds one.
-	reserved := 4
-	if hasPending {
-		reserved = 5
-	}
+	// header + axis + time-label + focus footer + series footer = 5.
+	reserved := 5
 	bodyH := height - reserved
 	if bodyH < 3 {
 		bodyH = 3
@@ -190,28 +206,77 @@ func renderChart(records grail.Records, width, height int, pendingFrom, pendingT
 	}
 
 	bar := lipgloss.NewStyle().Foreground(colorAccent)
-	pendingFromCol := timeToCol(pendingFrom, chartFrom, chartTo, len(series))
-	pendingToCol := timeToCol(pendingTo, chartFrom, chartTo, len(series))
+	focusCol, otherCol := chartFocusMarkerCols(focus, pendingFrom, pendingTo, chartFrom, chartTo, len(series))
+	markerCols := make([]int, 0, 2)
+	if otherCol >= 0 {
+		markerCols = append(markerCols, otherCol)
+	}
+	if blinkOn && focusCol >= 0 {
+		markerCols = append(markerCols, focusCol)
+	}
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("max %s · total %s · interval %s · %d buckets",
 		fmtCount(max), fmtCount(total), prettyInterval(interval), len(counts)))
 	b.WriteByte('\n')
 	for _, row := range grid {
-		b.WriteString(renderRowWithMarkers(row, bar, pendingNudgeStyle, pendingFromCol, pendingToCol))
+		b.WriteString(renderRowWithMarkers(row, bar, pendingNudgeStyle, markerCols...))
 		b.WriteByte('\n')
 	}
 	axisRow := []rune(strings.Repeat("─", len(series)))
-	b.WriteString(renderRowWithMarkers(axisRow, lipgloss.NewStyle(), pendingNudgeStyle, pendingFromCol, pendingToCol))
+	b.WriteString(renderRowWithMarkers(axisRow, lipgloss.NewStyle(), pendingNudgeStyle, markerCols...))
 	b.WriteByte('\n')
 	b.WriteString(spaceBetween(shortTime(start), shortTime(end), len(series)))
 	b.WriteByte('\n')
-	if hasPending {
-		b.WriteString(statusBar.Render("pending: " + pendingFooter(pendingFrom, pendingTo)))
-		b.WriteByte('\n')
+	footerFrom := pendingFrom
+	if footerFrom.IsZero() {
+		footerFrom = chartFrom
 	}
+	footerTo := pendingTo
+	if footerTo.IsZero() {
+		footerTo = chartTo
+	}
+	prefix := "range:   "
+	if hasPending {
+		prefix = "pending: "
+	}
+	b.WriteString(statusBar.Render(prefix + rangeFooter(footerFrom, footerTo, !pendingFrom.IsZero(), !pendingTo.IsZero())))
+	b.WriteByte('\n')
 	b.WriteString(statusBar.Render("series: " + label))
 	return b.String()
+}
+
+// chartFocusMarkerCols picks the bar-grid columns that get the marker style.
+// `focused` is the column for the currently-focused endpoint (its pending
+// value if set, otherwise the chart's matching extremity so the user sees
+// the focus immediately on chart open). `other` is the non-focused
+// endpoint's pending column if it has been nudged, else -1 — the
+// non-focused endpoint has no marker until the user actually stages a value
+// there, so chart-open is uncluttered. Either may be -1 when ncols<=0 or
+// when the chart timeframe is missing.
+func chartFocusMarkerCols(focus chartEndpoint, pendingFrom, pendingTo, chartFrom, chartTo time.Time, ncols int) (focused, other int) {
+	focused, other = -1, -1
+	switch focus {
+	case nudgeFrom:
+		if !pendingFrom.IsZero() {
+			focused = timeToCol(pendingFrom, chartFrom, chartTo, ncols)
+		} else if ncols > 0 {
+			focused = 0
+		}
+		if !pendingTo.IsZero() {
+			other = timeToCol(pendingTo, chartFrom, chartTo, ncols)
+		}
+	case nudgeTo:
+		if !pendingTo.IsZero() {
+			focused = timeToCol(pendingTo, chartFrom, chartTo, ncols)
+		} else if ncols > 0 {
+			focused = ncols - 1
+		}
+		if !pendingFrom.IsZero() {
+			other = timeToCol(pendingFrom, chartFrom, chartTo, ncols)
+		}
+	}
+	return focused, other
 }
 
 // timeToCol maps a wall-clock time onto a chart column index in [0, ncols).
@@ -265,17 +330,23 @@ func renderRowWithMarkers(row []rune, base, marker lipgloss.Style, markerCols ..
 	return b.String()
 }
 
-// pendingFooter renders "from <X> · to <Y>" with each non-zero value
-// highlighted. Skips the part for whichever endpoint is unset.
-func pendingFooter(pendingFrom, pendingTo time.Time) string {
-	parts := []string{}
-	if !pendingFrom.IsZero() {
-		parts = append(parts, "from "+pendingNudgeStyle.Render(pendingFrom.Local().Format("Jan 2 15:04")))
+// rangeFooter renders "from <X> · to <Y>" with statically-highlighted text
+// for whichever endpoint has been nudged (so the user can see at a glance
+// which value differs from the chart's actual range). The focus blink is
+// drawn on the chart column itself, not in this text.
+func rangeFooter(from, to time.Time, fromIsPending, toIsPending bool) string {
+	fromText := from.Local().Format("Jan 2 15:04")
+	toText := to.Local().Format("Jan 2 15:04")
+	plain := lipgloss.NewStyle()
+	fromStyled := plain.Render(fromText)
+	if fromIsPending {
+		fromStyled = pendingNudgeStyle.Render(fromText)
 	}
-	if !pendingTo.IsZero() {
-		parts = append(parts, "to "+pendingNudgeStyle.Render(pendingTo.Local().Format("Jan 2 15:04")))
+	toStyled := plain.Render(toText)
+	if toIsPending {
+		toStyled = pendingNudgeStyle.Render(toText)
 	}
-	return strings.Join(parts, " · ")
+	return "from " + fromStyled + " · to " + toStyled
 }
 
 func chartHint(msg string) string {
