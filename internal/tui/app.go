@@ -40,7 +40,7 @@ type Model struct {
 	width, height int
 	focus         focus
 
-	editor  textarea.Model
+	editor  Editor
 	table   table.Model
 	detail  viewport.Model
 	spinner spinner.Model
@@ -69,13 +69,8 @@ type Model struct {
 }
 
 func New(client *grail.Client) Model {
-	ed := textarea.New()
-	ed.Placeholder = "fetch logs, from:now()-15m | limit 50"
+	ed := NewEditor()
 	ed.SetValue("fetch logs, from:now()-15m | limit 50")
-	ed.Focus()
-	ed.ShowLineNumbers = true
-	ed.CharLimit = 0
-	ed.SetHeight(8)
 
 	t := table.New(
 		table.WithColumns([]table.Column{{Title: "(no results)", Width: 40}}),
@@ -469,7 +464,7 @@ func (m Model) View() string {
 
 	var sections []string
 
-	editorTitle := "Query"
+	editorTitle := fmt.Sprintf("Query [%s]", m.editor.Mode())
 	editorBorder := paneBorder
 	editorTitleStyle := paneTitle
 	if m.focus == focusEditor {
