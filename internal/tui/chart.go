@@ -6,10 +6,89 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/kantis/dynatrace-tui/internal/dql"
 	"github.com/kantis/dynatrace-tui/internal/grail"
 )
+
+// chartEndpoint identifies which side of the chart timeframe a nudge applies to.
+type chartEndpoint int
+
+const (
+	nudgeFrom chartEndpoint = iota
+	nudgeTo
+)
+
+// chartNudgeDelta maps a key to a (delta, endpoint) pair. Lowercase keys push
+// `from` forward; uppercase keys pull `to` backward — both narrow the window
+// toward the middle so the user can zoom in around an interesting feature.
+func chartNudgeDelta(key string) (time.Duration, chartEndpoint, bool) {
+	switch key {
+	case "h":
+		return time.Hour, nudgeFrom, true
+	case "H":
+		return -time.Hour, nudgeTo, true
+	case "m":
+		return time.Minute, nudgeFrom, true
+	case "M":
+		return -time.Minute, nudgeTo, true
+	case "s":
+		return time.Second, nudgeFrom, true
+	case "S":
+		return -time.Second, nudgeTo, true
+	case "d":
+		return 24 * time.Hour, nudgeFrom, true
+	case "D":
+		return -24 * time.Hour, nudgeTo, true
+	}
+	return 0, 0, false
+}
+
+// nudgeChartTimeframe rewrites the editor's from:/to: clauses based on the
+// chart's current timeframe and re-runs the chart. Returns handled=false when
+// the chart has no usable timeframe or the nudge would invert the window.
+func (m Model) nudgeChartTimeframe(endpoint chartEndpoint, delta time.Duration) (Model, tea.Cmd, bool) {
+	if len(m.chartRecords) == 0 {
+		return m, nil, false
+	}
+	startStr, endStr := pickTimeframe(m.chartRecords[0])
+	from, fromOK := parseISOTime(startStr)
+	to, toOK := parseISOTime(endStr)
+	if !fromOK || !toOK {
+		return m, nil, false
+	}
+
+	if endpoint == nudgeFrom {
+		from = from.Add(delta)
+	} else {
+		to = to.Add(delta)
+	}
+	if !from.Before(to) {
+		m.infoMsg = "nudge would invert the time range"
+		m.state = stateIdle
+		return m, nil, true
+	}
+
+	newDQL := dql.SubstituteAbsolute(dql.PrependFetch(m.editor.Value()), from, to, true)
+	m.editor.SetValue(dql.StripFetch(newDQL))
+
+	next, cmd := m.runChart()
+	return next.(Model), cmd, true
+}
+
+func parseISOTime(s string) (time.Time, bool) {
+	if s == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05.000Z"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
 
 // makeTimeseries returns one record per series; the first is what we chart.
 // The numeric column is an array of length N (one per bucket); `timeframe` is

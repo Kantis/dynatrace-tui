@@ -382,6 +382,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			next, cmd := m.updateDetailSearchInput(msg)
 			return next, cmd
 		}
+		// Chart-only: h/H/m/M/s/S/d/D nudge from/to to narrow the window.
+		// Gated on stateIdle so we don't stack queries while one is in flight.
+		if m.detailKind == detailChart && m.state != stateRunning {
+			if delta, endpoint, ok := chartNudgeDelta(msg.String()); ok {
+				m.detailPendingG = false
+				next, cmd, handled := m.nudgeChartTimeframe(endpoint, delta)
+				if handled {
+					return next, cmd
+				}
+			}
+		}
 		switch msg.String() {
 		case "/":
 			m.detailPendingG = false

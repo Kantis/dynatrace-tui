@@ -62,6 +62,10 @@ var helpSections = []helpSection{
 		{"gg / G", "top / bottom"},
 		{"q / Esc", "close detail"},
 	}},
+	{"Chart view (narrow window)", []helpEntry{
+		{"h / m / s / d", "push from + 1h / 1m / 1s / 1d"},
+		{"H / M / S / D", "pull to − 1h / 1m / 1s / 1d"},
+	}},
 	{"Saved searches view (Alt-2)", []helpEntry{
 		{"↑ / ↓ (or k / j)", "move cursor"},
 		{"Enter", "load and run"},
@@ -106,9 +110,9 @@ func (m Model) viewHelp() string {
 	}
 
 	// Two-column layout: left column gets Global + Results + Detail +
-	// Saved; right column gets the editor sections.
+	// Saved; right column gets the editor sections + Chart-view nudges.
 	leftIdx := []int{0, 3, 4, 5}
-	rightIdx := []int{1, 2}
+	rightIdx := []int{1, 2, 6}
 
 	left := make([]string, 0, len(leftIdx))
 	for _, i := range leftIdx {
