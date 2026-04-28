@@ -2,7 +2,10 @@ package cmd
 
 import "github.com/spf13/cobra"
 
-var configPath string
+var (
+	configPath string
+	envName    string
+)
 
 func Root() *cobra.Command {
 	root := &cobra.Command{
@@ -16,6 +19,7 @@ func Root() *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.PersistentFlags().StringVar(&configPath, "config", "", "path to config file (default ~/.config/dynatrace-tui/config.yaml)")
+	root.PersistentFlags().StringVarP(&envName, "env", "e", "", "name of the environment to use (overrides `default:` in config)")
 
 	root.AddCommand(queryCmd())
 	return root

@@ -33,7 +33,11 @@ func queryCmd() *cobra.Command {
 }
 
 func runQuery(parent context.Context, query, timeframe string) error {
-	cfg, err := config.Load(configPath)
+	loaded, err := config.Load(configPath, envName)
+	if err != nil {
+		return err
+	}
+	cfg, err := loaded.Config(loaded.Selected)
 	if err != nil {
 		return err
 	}

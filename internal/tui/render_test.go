@@ -18,7 +18,7 @@ func TestViewFitsHeight(t *testing.T) {
 		{100, 40},
 	}
 	for _, tc := range cases {
-		m := New(nil)
+		m := New(nil, "", nil, nil)
 		m, _ = applyMsg(m, tea.WindowSizeMsg{Width: tc.w, Height: tc.h})
 		out := m.View()
 		lines := strings.Count(out, "\n") + 1
@@ -39,7 +39,7 @@ func applyMsg(m Model, msg tea.Msg) (Model, tea.Cmd) {
 // installed the placeholder "(empty)" column, and bubbles/table indexed
 // past it.
 func TestPopulateTableHandlesEmptyAfterPopulated(t *testing.T) {
-	m := New(nil)
+	m := New(nil, "", nil, nil)
 	m, _ = applyMsg(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	// First "query": multiple records with multiple fields → multi-column table.

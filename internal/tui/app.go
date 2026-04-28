@@ -50,7 +50,10 @@ const (
 )
 
 type Model struct {
-	client *grail.Client
+	client     *grail.Client
+	envName    string
+	envNames   []string
+	makeClient func(name string) (*grail.Client, error)
 
 	width, height int
 	focus         focus
@@ -95,9 +98,10 @@ type Model struct {
 	templateInputs []textinput.Model
 	templateIdx    int
 	exportIdx      int
+	envSwitchIdx   int
 }
 
-func New(client *grail.Client) Model {
+func New(client *grail.Client, envName string, envNames []string, makeClient func(string) (*grail.Client, error)) Model {
 	ed := NewEditor()
 	ed.SetValue("from:now()-15m")
 
@@ -119,6 +123,9 @@ func New(client *grail.Client) Model {
 
 	return Model{
 		client:        client,
+		envName:       envName,
+		envNames:      envNames,
+		makeClient:    makeClient,
 		focus:         focusEditor,
 		currentView:   viewQuery,
 		editor:        ed,
@@ -126,7 +133,7 @@ func New(client *grail.Client) Model {
 		detail:        vp,
 		spinner:       sp,
 		state:         stateIdle,
-		infoMsg:       "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Alt-2 saved · Ctrl-S save · Ctrl-P params · Ctrl-E export · q quit",
+		infoMsg:       "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Alt-2 saved · Ctrl-S save · Ctrl-P params · Ctrl-X export · Ctrl-E env · q quit",
 		savedQueries:  saved,
 		savedEditBody: editBody,
 	}
@@ -217,6 +224,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.updateTemplate(msg)
 		case modalExport:
 			return m.updateExport(msg)
+		case modalSwitchEnv:
+			return m.updateSwitchEnv(msg)
 		}
 	}
 
@@ -268,7 +277,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, textinput.Blink
 		}
 		return m, nil
-	case "ctrl+e":
+	case "ctrl+x":
 		if len(m.records) == 0 {
 			m.errMsg = "no records to export"
 			m.state = stateError
@@ -276,6 +285,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.modal = modalExport
 		m.exportIdx = 0
+		return m, nil
+	case "ctrl+e":
+		if len(m.envNames) <= 1 {
+			m.infoMsg = "only one environment configured"
+			m.state = stateIdle
+			return m, nil
+		}
+		m.modal = modalSwitchEnv
+		m.envSwitchIdx = 0
+		for i, n := range m.envNames {
+			if n == m.envName {
+				m.envSwitchIdx = i
+				break
+			}
+		}
 		return m, nil
 	case "esc":
 		if m.focus == focusDetail {
@@ -574,12 +598,14 @@ func (m Model) View() string {
 			return m.viewTemplate()
 		case modalExport:
 			return m.viewExport()
+		case modalSwitchEnv:
+			return m.viewSwitchEnv()
 		}
 	}
 
 	var sections []string
 
-	editorTitle := fmt.Sprintf("Query [%s] · auto-prepends fetch logs,", m.editor.Mode())
+	editorTitle := fmt.Sprintf("Query%s [%s]", m.envSuffix(), m.editor.Mode())
 	editorBorder := paneBorder
 	editorTitleStyle := paneTitle
 	if m.focus == focusEditor {
@@ -597,9 +623,9 @@ func (m Model) View() string {
 		sections = append(sections, paneTitleFocused.Render(title))
 		sections = append(sections, paneBorderFocused.Render(m.detail.View()))
 	} else {
-		title := "Results"
+		title := "Results" + m.envSuffix()
 		if m.rowCount > 0 {
-			title = fmt.Sprintf("Results (%d)", m.rowCount)
+			title = fmt.Sprintf("Results%s (%d)", m.envSuffix(), m.rowCount)
 		}
 		border := paneBorder
 		titleStyle := paneTitle
@@ -614,6 +640,15 @@ func (m Model) View() string {
 	sections = append(sections, m.statusLine())
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+// envSuffix renders ` [<envName>]` for use as a pane-title suffix, or "" if
+// no env name is set (e.g. the legacy single-env config path).
+func (m Model) envSuffix() string {
+	if m.envName == "" {
+		return ""
+	}
+	return " [" + m.envName + "]"
 }
 
 func (m Model) statusLine() string {

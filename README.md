@@ -24,8 +24,16 @@ see it once.
 Create `~/.config/dynatrace-tui/config.yaml`:
 
 ```yaml
-environment_id: abc12345    # the prefix in https://<env-id>.apps.dynatrace.com
-platform_token: dt0s16.XXXXXXXX.YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY
+environments:
+  PROD:
+    environment_id: abc12345    # the prefix in https://<env-id>.apps.dynatrace.com
+    platform_token: dt0s16.XXXXXXXX.YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY
+  TEST:
+    environment_id: def67890
+    platform_token: dt0s16.AAAAAAAA.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+# Optional: pin a starting environment by name. Defaults to the first one
+# in the file.
+default: PROD
 ```
 
 Tighten permissions since the file holds a secret:
@@ -62,6 +70,7 @@ dttui query [flags] <DQL>
 | Flag | Description |
 | --- | --- |
 | `-t, --timeframe` | Convenience preset (`15m`, `1h`, `6h`, `24h`). Injected as `from:now()-<tf>` if the query doesn't already have a `from:` clause. |
+| `-e, --env` | Environment name to use (overrides `default:` in config). |
 | `--config` | Path to config file (default `~/.config/dynatrace-tui/config.yaml`). |
 
 Output is a JSON array of records on stdout; diagnostics on stderr. `Ctrl-C`
@@ -89,7 +98,8 @@ with `fetch ...` (e.g. `fetch events`) or with `|` are handled correctly.
 | `Ctrl-S` | Save current query to `~/.config/dynatrace-tui/searches.yaml` |
 | `Ctrl-O` | Jump to the Saved Searches view |
 | `Ctrl-P` | Fill `$placeholder` parameters in the current query |
-| `Ctrl-E` | Export results as JSON or CSV (all rows or current row) |
+| `Ctrl-E` | Switch environment (when more than one is configured) |
+| `Ctrl-X` | Export results as JSON or CSV (all rows or current row) |
 | `Ctrl-R` | Redo (vim-style) — pairs with `u` for undo in normal mode |
 | `q` | Quit (when not editing text) |
 | `Ctrl-C` | Cancel running query, or quit when idle |
@@ -188,24 +198,39 @@ Exports land in the current working directory as
 
 `~/.config/dynatrace-tui/config.yaml` — env vars override file values.
 
+Each environment can use either a Platform Token (recommended for personal
+use) or OAuth (machine-to-machine):
+
 ```yaml
-environment_id: abc12345
+environments:
+  PROD:
+    environment_id: abc12345
+    platform_token: dt0s16.XXXX.YYYY
+  TEST:
+    environment_id: def67890
+    oauth:
+      client_id: dt0s02.XXXX
+      client_secret: dt0s02.XXXX.YYYY
+      scopes:
+        - storage:logs:read
+        - storage:buckets:read
 
-# Either a Platform Token (recommended for personal use)…
-platform_token: dt0s16.XXXX.YYYY
-
-# …or an OAuth client (machine-to-machine).
-# oauth:
-#   client_id: dt0s02.XXXX
-#   client_secret: dt0s02.XXXX.YYYY
-#   scopes:
-#     - storage:logs:read
-#     - storage:buckets:read
+# Optional. The first environment in the file is used when neither
+# `default:` nor `--env` is set.
+default: PROD
 ```
+
+Pick an environment with `--env <name>` (or `-e <name>`); inside the TUI use
+`Ctrl-E` to switch on the fly. The active environment shows up as a `[NAME]`
+suffix on the Query and Results pane titles.
+
+The legacy single-environment shape (top-level `environment_id` /
+`platform_token` / `oauth`) is still accepted and is treated as a single
+environment named `default`.
 
 | Env var | Overrides |
 | --- | --- |
-| `DT_ENVIRONMENT_ID` | `environment_id` |
-| `DT_PLATFORM_TOKEN` | `platform_token` |
-| `DT_OAUTH_CLIENT_ID` | `oauth.client_id` |
-| `DT_OAUTH_CLIENT_SECRET` | `oauth.client_secret` |
+| `DT_ENVIRONMENT_ID` | the active environment's `environment_id` |
+| `DT_PLATFORM_TOKEN` | the active environment's `platform_token` |
+| `DT_OAUTH_CLIENT_ID` | the active environment's `oauth.client_id` |
+| `DT_OAUTH_CLIENT_SECRET` | the active environment's `oauth.client_secret` |

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
@@ -11,20 +13,37 @@ import (
 )
 
 func runTUI(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load(configPath)
+	loaded, err := config.Load(configPath, envName)
+	if err != nil {
+		return err
+	}
+	if len(loaded.Names) == 0 {
+		return fmt.Errorf("no environments configured in %s", loaded.Path)
+	}
+
+	makeClient := func(name string) (*grail.Client, error) {
+		cfg, err := loaded.Config(name)
+		if err != nil {
+			return nil, err
+		}
+		var tokens grail.TokenProvider
+		if cfg.PlatformToken != "" {
+			tokens = auth.Static(cfg.PlatformToken)
+		} else {
+			tokens = auth.New(cfg.ClientID, cfg.ClientSecret, cfg.Scopes)
+		}
+		return grail.New(cfg.EnvironmentID, tokens), nil
+	}
+
+	client, err := makeClient(loaded.Selected)
 	if err != nil {
 		return err
 	}
 
-	var tokens grail.TokenProvider
-	if cfg.PlatformToken != "" {
-		tokens = auth.Static(cfg.PlatformToken)
-	} else {
-		tokens = auth.New(cfg.ClientID, cfg.ClientSecret, cfg.Scopes)
-	}
-	client := grail.New(cfg.EnvironmentID, tokens)
-
-	prog := tea.NewProgram(tui.New(client), tea.WithAltScreen())
+	prog := tea.NewProgram(
+		tui.New(client, loaded.Selected, loaded.Names, makeClient),
+		tea.WithAltScreen(),
+	)
 	_, err = prog.Run()
 	return err
 }

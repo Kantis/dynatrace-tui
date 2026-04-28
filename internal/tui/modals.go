@@ -12,6 +12,7 @@ const (
 	modalSaveQuery
 	modalTemplate
 	modalExport
+	modalSwitchEnv
 )
 
 var modalBox = lipgloss.NewStyle().
