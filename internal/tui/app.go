@@ -80,6 +80,14 @@ type Model struct {
 	chartRecords   grail.Records
 	detailPendingG bool // vim `gg` in the detail viewport
 
+	// Detail viewport search (`/`)
+	detailRawContent    string
+	detailSearchInput   textinput.Model
+	detailSearchQuery   string
+	detailSearchMatches []int // line indices of matches in raw content
+	detailSearchIdx     int
+	detailSearchActive  bool
+
 	// Modal state
 	modal          modalKind
 	timeRangeIdx   int
@@ -312,9 +320,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Detail viewport: vim-style nav and `q` to close instead of quitting.
+	// Detail viewport: search prompt, vim-style nav, and `q` to close.
 	if m.focus == focusDetail {
+		if m.detailSearchActive {
+			next, cmd := m.updateDetailSearchInput(msg)
+			return next, cmd
+		}
 		switch msg.String() {
+		case "/":
+			m.detailPendingG = false
+			return m.startDetailSearch(), textinput.Blink
+		case "n":
+			m.detailPendingG = false
+			return m.nextDetailMatch(), nil
+		case "N":
+			m.detailPendingG = false
+			return m.prevDetailMatch(), nil
 		case "q":
 			m.detailPendingG = false
 			m.focus = focusResults
@@ -476,7 +497,7 @@ func (m Model) applyResult(resp *grail.Response) Model {
 			m.rowCount = 0
 			m.populateTable()
 			m.detailKind = detailChart
-			m.detail.SetContent(renderChart(records, m.detail.Width, m.detail.Height))
+			m.setDetailContent(renderChart(records, m.detail.Width, m.detail.Height))
 			m.detail.GotoTop()
 			m.focus = focusDetail
 			m.editor.Blur()
@@ -563,7 +584,7 @@ func (m *Model) openDetail() {
 	}
 	rec := m.records[cur]
 	m.detailKind = detailRecord
-	m.detail.SetContent(renderRecordDetail(rec))
+	m.setDetailContent(renderRecordDetail(rec))
 	m.detail.GotoTop()
 	m.focus = focusDetail
 }
@@ -596,7 +617,7 @@ func (m *Model) applyLayout() {
 	m.savedEditBody.SetHeight(editorH)
 	m.populateTable()
 	if m.detailKind == detailChart && len(m.chartRecords) > 0 {
-		m.detail.SetContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height))
+		m.setDetailContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height))
 	}
 }
 
@@ -675,6 +696,11 @@ func (m Model) envSuffix() string {
 }
 
 func (m Model) statusLine() string {
+	// While typing into the detail search prompt, the status line *is* the
+	// search prompt — overrides everything else.
+	if m.focus == focusDetail && m.detailSearchActive {
+		return statusBar.Render(m.detailSearchInput.View())
+	}
 	left := ""
 	switch m.state {
 	case stateRunning:
@@ -687,6 +713,13 @@ func (m Model) statusLine() string {
 		}
 	}
 	right := "Alt-Enter run · Ctrl-G chart · Alt-1/2 view · q quit"
+	if m.focus == focusDetail {
+		if s := m.detailSearchStatus(); s != "" {
+			right = s
+		} else {
+			right = "/ search · gg/G top/bottom · q close"
+		}
+	}
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
 		gap = 1
