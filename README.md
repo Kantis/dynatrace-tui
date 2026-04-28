@@ -37,7 +37,19 @@ chmod 600 ~/.config/dynatrace-tui/config.yaml
 ### 3. Install and run
 
 ```sh
-go install .
+go install ./cmd/dttui
+```
+
+Make sure Go's bin directory is on your `PATH` — add this to `~/.zshrc`
+(or `~/.bashrc`) once:
+
+```sh
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+Then:
+
+```sh
 dttui query 'fetch logs, from:now()-15m | limit 5'
 ```
 
