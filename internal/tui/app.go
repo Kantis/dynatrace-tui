@@ -152,8 +152,8 @@ type Model struct {
 	resolveFocus  int
 }
 
-func New(client *grail.Client, envName string, envNames []string, makeClient func(string) (*grail.Client, error)) Model {
-	ed := NewEditor()
+func New(client *grail.Client, envName string, envNames []string, makeClient func(string) (*grail.Client, error), vimMode bool) Model {
+	ed := NewEditor(vimMode)
 	ed.SetValue("from:now()-15m")
 
 	t := newTable()
@@ -170,7 +170,7 @@ func New(client *grail.Client, envName string, envNames []string, makeClient fun
 	// Pre-initialise the saved-search edit body so applyLayout's SetWidth/Height
 	// calls are safe even before the user enters edit mode (zero-value textarea
 	// panics on SetWidth).
-	editBody := NewEditor()
+	editBody := NewEditor(vimMode)
 	editBody.Blur()
 
 	infoMsg := "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Alt-2 saved · Alt-3 filters · Ctrl-F insert filter · Ctrl-S save · Ctrl-P params · Ctrl-X export · Ctrl-E env · q quit"
@@ -342,9 +342,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// `?` opens the shortcut legend. Suppressed when the editor is in
-	// insert mode so the literal character can be typed into a query.
-	if msg.String() == "?" && !(m.focus == focusEditor && m.editor.Mode() == modeInsert) {
+	// `?` opens the shortcut legend. Suppressed only when typing in the
+	// vim editor's insert mode so a literal `?` can land in the query —
+	// when vim is disabled the editor surrenders that key so the legend
+	// stays reachable.
+	editorTyping := m.focus == focusEditor && m.editor.Vim() && m.editor.Mode() == modeInsert
+	if msg.String() == "?" && !editorTyping {
 		m.modal = modalHelp
 		return m, nil
 	}
@@ -910,14 +913,21 @@ func (m Model) renderTabs() string {
 }
 
 // activeEditorMode returns the vim mode string of whichever editor is
-// currently in focus, or "" when no editor is. This drives the mode chip
-// shown on the tabs row so users always see INSERT/NORMAL when typing,
-// regardless of which view's editor is active.
+// currently in focus, or "" when no editor is (or when vim mode is
+// disabled). This drives the mode chip shown on the tabs row so users
+// always see INSERT/NORMAL when typing, regardless of which view's
+// editor is active.
 func (m Model) activeEditorMode() string {
 	switch {
 	case m.currentView == viewQuery && m.focus == focusEditor:
+		if !m.editor.Vim() {
+			return ""
+		}
 		return m.editor.Mode().String()
 	case m.currentView == viewSaved && m.savedMode == savedModeEditing && m.savedEditFocus == savedEditFocusBody:
+		if !m.savedEditBody.Vim() {
+			return ""
+		}
 		return m.savedEditBody.Mode().String()
 	}
 	return ""
