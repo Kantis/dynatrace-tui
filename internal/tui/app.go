@@ -279,6 +279,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.focus != focusDetail || m.detailKind != detailChart {
 			return m, nil
 		}
+		// Stop ticking when nothing is staged — the ticker resumes on the
+		// next nudge. This keeps the chart static until the user actually
+		// starts nudging.
+		if m.chartPendingFrom.IsZero() && m.chartPendingTo.IsZero() {
+			return m, nil
+		}
 		m.chartFocusBlinkOn = !m.chartFocusBlinkOn
 		m.setDetailContent(renderChart(m.chartRecords, m.detail.Width, m.detail.Height,
 			m.chartPendingFrom, m.chartPendingTo, m.chartFocusEndpoint, m.chartFocusBlinkOn))
@@ -651,7 +657,6 @@ func (m Model) applyResult(resp *grail.Response) (Model, tea.Cmd) {
 		m.state = stateIdle
 		m.errMsg = ""
 		if m.pendingChart {
-			wasInChart := m.focus == focusDetail && m.detailKind == detailChart
 			m.pendingChart = false
 			m.chartRecords = records
 			m.chartPendingFrom = time.Time{}
@@ -669,10 +674,7 @@ func (m Model) applyResult(resp *grail.Response) (Model, tea.Cmd) {
 			m.editor.Blur()
 			m.table.Blur()
 			m.infoMsg = "chart ready — Tab switch · h/m/s/d nudge · Enter run · Esc close"
-			if wasInChart {
-				return m, nil
-			}
-			return m, chartBlinkCmd()
+			return m, nil
 		}
 		m.records = records
 		m.rowCount = len(m.records)

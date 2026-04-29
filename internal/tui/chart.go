@@ -75,6 +75,8 @@ func (m Model) nudgeChartTimeframe(delta time.Duration) (Model, tea.Cmd, bool) {
 		return m, nil, false
 	}
 
+	wasUnstaged := m.chartPendingFrom.IsZero() && m.chartPendingTo.IsZero()
+
 	from := m.chartPendingFrom
 	if from.IsZero() {
 		from = chartFrom
@@ -107,7 +109,14 @@ func (m Model) nudgeChartTimeframe(delta time.Duration) (Model, tea.Cmd, bool) {
 		m.chartPendingFrom, m.chartPendingTo, m.chartFocusEndpoint, m.chartFocusBlinkOn))
 	m.infoMsg = "pending range — Enter to apply"
 	m.state = stateIdle
-	return m, nil, true
+	// Kick off the blink ticker on the first nudge — it loops itself via
+	// chartBlinkMsg until the next re-run clears the pending state.
+	var cmd tea.Cmd
+	if wasUnstaged {
+		m.chartFocusBlinkOn = true
+		cmd = chartBlinkCmd()
+	}
+	return m, cmd, true
 }
 
 func parseISOTime(s string) (time.Time, bool) {
@@ -246,21 +255,18 @@ func renderChart(records grail.Records, width, height int, pendingFrom, pendingT
 }
 
 // chartFocusMarkerCols picks the bar-grid columns that get the marker style.
-// `focused` is the column for the currently-focused endpoint (its pending
-// value if set, otherwise the chart's matching extremity so the user sees
-// the focus immediately on chart open). `other` is the non-focused
-// endpoint's pending column if it has been nudged, else -1 — the
-// non-focused endpoint has no marker until the user actually stages a value
-// there, so chart-open is uncluttered. Either may be -1 when ncols<=0 or
-// when the chart timeframe is missing.
+// Both columns are -1 until the user has nudged at least one endpoint —
+// the chart stays uncluttered on open. After the first nudge, `focused` is
+// the focused side's pending column (drawn only on blink-on frames so it
+// visibly toggles) and `other` is the opposite side's pending column if
+// also nudged (drawn statically). Either may be -1 when ncols<=0 or when
+// the corresponding endpoint has no pending value.
 func chartFocusMarkerCols(focus chartEndpoint, pendingFrom, pendingTo, chartFrom, chartTo time.Time, ncols int) (focused, other int) {
 	focused, other = -1, -1
 	switch focus {
 	case nudgeFrom:
 		if !pendingFrom.IsZero() {
 			focused = timeToCol(pendingFrom, chartFrom, chartTo, ncols)
-		} else if ncols > 0 {
-			focused = 0
 		}
 		if !pendingTo.IsZero() {
 			other = timeToCol(pendingTo, chartFrom, chartTo, ncols)
@@ -268,8 +274,6 @@ func chartFocusMarkerCols(focus chartEndpoint, pendingFrom, pendingTo, chartFrom
 	case nudgeTo:
 		if !pendingTo.IsZero() {
 			focused = timeToCol(pendingTo, chartFrom, chartTo, ncols)
-		} else if ncols > 0 {
-			focused = ncols - 1
 		}
 		if !pendingFrom.IsZero() {
 			other = timeToCol(pendingFrom, chartFrom, chartTo, ncols)

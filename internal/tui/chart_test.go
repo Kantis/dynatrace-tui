@@ -178,8 +178,8 @@ func TestChartFocusMarkerCols(t *testing.T) {
 		pFrom, pTo       time.Time
 		wantFocus, wantOther int
 	}{
-		{"focus from, no pending → focus on first col, no other", nudgeFrom, time.Time{}, time.Time{}, 0, -1},
-		{"focus to, no pending → focus on last col, no other", nudgeTo, time.Time{}, time.Time{}, ncols - 1, -1},
+		{"focus from, no pending → no markers (chart stays uncluttered until first nudge)", nudgeFrom, time.Time{}, time.Time{}, -1, -1},
+		{"focus to, no pending → no markers", nudgeTo, time.Time{}, time.Time{}, -1, -1},
 		{"focus from with pending from → focus on pending col", nudgeFrom, mid, time.Time{}, 30, -1},
 		{"focus to with pending to → focus on pending col", nudgeTo, time.Time{}, mid, 30, -1},
 		{"focus from with both pending → focus on from, other on to", nudgeFrom, mid, chartTo.Add(-time.Minute), 30, ncols - 1},
