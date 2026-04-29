@@ -181,8 +181,11 @@ entry in place; the new name has to be unique.
 `Ctrl-T` opens a modal with **two sections**: relative presets at the top, and
 absolute From/To text inputs below. **Tab / Shift-Tab** cycle between them.
 
-**Presets** (15m / 1h / 6h / 24h) — focus the preset list, pick with
-↑/↓, **Enter** to apply. Substitution priority on selection:
+**Presets** — focus the preset list, pick with ↑/↓, **Enter** to apply.
+Defaults: From shows `now()-15m`, `now()-1h`, `now()-6h`, `now()-24h`, and
+the start of the current hour; To shows the moment the modal was opened.
+Override either list under `time_picker:` in `config.yaml` (see below).
+Substitution priority on selection:
 
 1. Replace literal `$timeframe` if present.
 2. Else rewrite an existing `now()-<duration>` clause.
@@ -247,6 +250,26 @@ default: PROD
 # Optional. Enables the vim-style modal query editor. Off by default —
 # when off the editor is a plain textarea.
 vim_mode: true
+
+# Optional. Override the Ctrl-T preset lists. When the block (or either
+# inner list) is omitted, the built-in defaults are used. Each entry is
+# either a `now()-<duration>` relative offset, a literal datetime, or one
+# of these dynamic tokens (resolved when the modal opens):
+#   start_of_hour  — the start of the current hour
+#   start_of_day   — the start of the current day
+#   now() / now    — the moment the modal opened
+# Set `from: []` to render an empty list.
+time_picker:
+  from:
+    - now()-5m
+    - now()-30m
+    - now()-1h
+    - now()-12h
+    - now()-7d
+    - start_of_hour
+    - start_of_day
+  to:
+    - now()
 ```
 
 Pick an environment with `--env <name>` (or `-e <name>`); inside the TUI use

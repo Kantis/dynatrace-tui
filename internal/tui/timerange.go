@@ -33,22 +33,59 @@ func newTimeInput(placeholder string) textinput.Model {
 	return ti
 }
 
-func fromPicks(opened time.Time) []timePick {
-	hourStart := opened.Truncate(time.Hour).Format(timeDisplayLayout)
-	return []timePick{
-		{label: "now()-15m", value: "now()-15m"},
-		{label: "now()-1h", value: "now()-1h"},
-		{label: "now()-6h", value: "now()-6h"},
-		{label: "now()-24h", value: "now()-24h"},
-		{label: hourStart, value: hourStart},
-	}
+// defaultFromSpecs is the From-column preset list when no `time_picker.from`
+// is configured. `start_of_hour` is a recognized dynamic token resolved at
+// modal open.
+var defaultFromSpecs = []string{
+	"now()-15m",
+	"now()-1h",
+	"now()-6h",
+	"now()-24h",
+	"start_of_hour",
 }
 
-func toPicks(opened time.Time) []timePick {
-	openedStr := opened.Format(timeDisplayLayout)
-	return []timePick{
-		{label: "now()  (= " + openedStr + ")", value: openedStr},
+// defaultToSpecs is the To-column preset list when no `time_picker.to` is
+// configured.
+var defaultToSpecs = []string{"now()"}
+
+func fromPicks(opened time.Time, specs []string) []timePick {
+	if specs == nil {
+		specs = defaultFromSpecs
 	}
+	out := make([]timePick, 0, len(specs))
+	for _, s := range specs {
+		out = append(out, resolvePickSpec(s, opened))
+	}
+	return out
+}
+
+func toPicks(opened time.Time, specs []string) []timePick {
+	if specs == nil {
+		specs = defaultToSpecs
+	}
+	out := make([]timePick, 0, len(specs))
+	for _, s := range specs {
+		out = append(out, resolvePickSpec(s, opened))
+	}
+	return out
+}
+
+// resolvePickSpec turns a configured preset string into a timePick. Recognized
+// dynamic tokens are resolved against opened; everything else is passed
+// through verbatim with label == value.
+func resolvePickSpec(spec string, opened time.Time) timePick {
+	switch strings.TrimSpace(spec) {
+	case "start_of_hour":
+		v := opened.Truncate(time.Hour).Format(timeDisplayLayout)
+		return timePick{label: v, value: v}
+	case "start_of_day":
+		v := opened.Truncate(24 * time.Hour).Format(timeDisplayLayout)
+		return timePick{label: v, value: v}
+	case "now()", "now":
+		v := opened.Format(timeDisplayLayout)
+		return timePick{label: "now()  (= " + v + ")", value: v}
+	}
+	return timePick{label: spec, value: spec}
 }
 
 func (m Model) updateTimeRange(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -111,9 +148,9 @@ func (m *Model) focusedInput() *textinput.Model {
 
 func (m Model) focusedPicks() []timePick {
 	if m.timeRangeFocus == tfFocusFrom {
-		return fromPicks(m.timeRangeOpened)
+		return fromPicks(m.timeRangeOpened, m.timePickerFromSpecs)
 	}
-	return toPicks(m.timeRangeOpened)
+	return toPicks(m.timeRangeOpened, m.timePickerToSpecs)
 }
 
 func (m *Model) focusedPickIdx() *int {
@@ -308,8 +345,8 @@ func (m Model) viewTimeRange() string {
 	b.WriteString(paneTitleFocused.Render("Time range"))
 	b.WriteString("\n\n")
 
-	fromCol := renderTimeColumn("From", fromPicks(m.timeRangeOpened), m.timeFromIdx, m.timeFromInput, m.timeRangeFocus == tfFocusFrom)
-	toCol := renderTimeColumn("To", toPicks(m.timeRangeOpened), m.timeToIdx, m.timeToInput, m.timeRangeFocus == tfFocusTo)
+	fromCol := renderTimeColumn("From", fromPicks(m.timeRangeOpened, m.timePickerFromSpecs), m.timeFromIdx, m.timeFromInput, m.timeRangeFocus == tfFocusFrom)
+	toCol := renderTimeColumn("To", toPicks(m.timeRangeOpened, m.timePickerToSpecs), m.timeToIdx, m.timeToInput, m.timeRangeFocus == tfFocusTo)
 
 	colSep := "    "
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, fromCol, colSep, toCol))

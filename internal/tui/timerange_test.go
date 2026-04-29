@@ -118,7 +118,7 @@ func TestMatchCanonicalRelative(t *testing.T) {
 }
 
 func TestFromPicks(t *testing.T) {
-	picks := fromPicks(openedRef)
+	picks := fromPicks(openedRef, nil)
 	if len(picks) != 5 {
 		t.Fatalf("len = %d, want 5", len(picks))
 	}
@@ -131,11 +131,81 @@ func TestFromPicks(t *testing.T) {
 }
 
 func TestToPicks(t *testing.T) {
-	picks := toPicks(openedRef)
+	picks := toPicks(openedRef, nil)
 	if len(picks) != 1 {
 		t.Fatalf("len = %d, want 1", len(picks))
 	}
 	if picks[0].value != "2026-04-28 13:42:17" {
 		t.Errorf("picks[0].value = %q, want %q", picks[0].value, "2026-04-28 13:42:17")
+	}
+}
+
+func TestFromPicksFromConfig(t *testing.T) {
+	specs := []string{"now()-5m", "now()-7d", "start_of_day", "2026-01-01 00:00:00"}
+	picks := fromPicks(openedRef, specs)
+	if len(picks) != 4 {
+		t.Fatalf("len = %d, want 4", len(picks))
+	}
+	wantValues := []string{"now()-5m", "now()-7d", "2026-04-28 00:00:00", "2026-01-01 00:00:00"}
+	wantLabels := []string{"now()-5m", "now()-7d", "2026-04-28 00:00:00", "2026-01-01 00:00:00"}
+	for i, want := range wantValues {
+		if picks[i].value != want {
+			t.Errorf("picks[%d].value = %q, want %q", i, picks[i].value, want)
+		}
+		if picks[i].label != wantLabels[i] {
+			t.Errorf("picks[%d].label = %q, want %q", i, picks[i].label, wantLabels[i])
+		}
+	}
+}
+
+func TestFromPicksEmptyConfig(t *testing.T) {
+	// Empty (non-nil) slice means "configured to be empty" — no presets.
+	picks := fromPicks(openedRef, []string{})
+	if len(picks) != 0 {
+		t.Errorf("len = %d, want 0", len(picks))
+	}
+}
+
+func TestToPicksFromConfig(t *testing.T) {
+	picks := toPicks(openedRef, []string{"now()", "now()-1h"})
+	if len(picks) != 2 {
+		t.Fatalf("len = %d, want 2", len(picks))
+	}
+	if picks[0].value != "2026-04-28 13:42:17" {
+		t.Errorf("picks[0].value = %q", picks[0].value)
+	}
+	if picks[0].label != "now()  (= 2026-04-28 13:42:17)" {
+		t.Errorf("picks[0].label = %q", picks[0].label)
+	}
+	if picks[1].value != "now()-1h" || picks[1].label != "now()-1h" {
+		t.Errorf("picks[1] = %+v", picks[1])
+	}
+}
+
+func TestResolvePickSpec(t *testing.T) {
+	cases := []struct {
+		name      string
+		spec      string
+		wantValue string
+		wantLabel string
+	}{
+		{"start_of_hour", "start_of_hour", "2026-04-28 13:00:00", "2026-04-28 13:00:00"},
+		{"start_of_day", "start_of_day", "2026-04-28 00:00:00", "2026-04-28 00:00:00"},
+		{"now()", "now()", "2026-04-28 13:42:17", "now()  (= 2026-04-28 13:42:17)"},
+		{"now bare", "now", "2026-04-28 13:42:17", "now()  (= 2026-04-28 13:42:17)"},
+		{"relative offset", "now()-30m", "now()-30m", "now()-30m"},
+		{"absolute literal", "2026-01-01 00:00:00", "2026-01-01 00:00:00", "2026-01-01 00:00:00"},
+		{"trim whitespace", "  start_of_hour  ", "2026-04-28 13:00:00", "2026-04-28 13:00:00"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolvePickSpec(tc.spec, openedRef)
+			if got.value != tc.wantValue {
+				t.Errorf("value = %q, want %q", got.value, tc.wantValue)
+			}
+			if got.label != tc.wantLabel {
+				t.Errorf("label = %q, want %q", got.label, tc.wantLabel)
+			}
+		})
 	}
 }

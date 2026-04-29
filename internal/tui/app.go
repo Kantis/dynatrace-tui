@@ -111,36 +111,40 @@ type Model struct {
 	timeFromInput   textinput.Model
 	timeToInput     textinput.Model
 	timeRangeOpened time.Time // captured at modal open; used for "now"/"start of hour" picks and for resolving relatives during nudging
-	saveInput      textinput.Model
-	savedQueries   []SavedQuery
-	savedDefault   string // name of the saved search auto-loaded on startup
-	savedListIdx   int
-	pendingAutoRun bool // run the editor body on first event after startup
-	silentRun      bool // suppress the post-result focus shift to the results table (used by the startup auto-run)
+	// Configured time-picker preset specs. nil means "use built-in defaults";
+	// a non-nil slice (possibly empty) replaces the default list verbatim.
+	timePickerFromSpecs []string
+	timePickerToSpecs   []string
+	saveInput           textinput.Model
+	savedQueries        []SavedQuery
+	savedDefault        string // name of the saved search auto-loaded on startup
+	savedListIdx        int
+	pendingAutoRun      bool // run the editor body on first event after startup
+	silentRun           bool // suppress the post-result focus shift to the results table (used by the startup auto-run)
 	// Saved searches view (Alt-2)
 	savedMode             savedSearchesMode
 	savedEditNameInput    textinput.Model
 	savedEditBody         Editor
 	savedEditOriginalName string
 	savedEditFocus        savedEditFocus
-	templateNames  []string
-	templateInputs []textinput.Model
-	templateIdx    int
-	exportIdx      int
-	envSwitchIdx   int
+	templateNames         []string
+	templateInputs        []textinput.Model
+	templateIdx           int
+	exportIdx             int
+	envSwitchIdx          int
 
 	// Favorite filters (Alt-3)
-	filters         []SavedFilter
-	filtersListIdx  int
-	filtersMode     filtersMode
-	filterEditIsNew         bool
-	filterEditOriginalName  string
-	filterEditNameInput     textinput.Model
-	filterEditTemplate      textarea.Model
-	filterEditPlaceholders  []string
-	filterEditSuggestions   []textarea.Model
-	filterEditValuesByName  map[string]string
-	filterEditFocus         int
+	filters                []SavedFilter
+	filtersListIdx         int
+	filtersMode            filtersMode
+	filterEditIsNew        bool
+	filterEditOriginalName string
+	filterEditNameInput    textinput.Model
+	filterEditTemplate     textarea.Model
+	filterEditPlaceholders []string
+	filterEditSuggestions  []textarea.Model
+	filterEditValuesByName map[string]string
+	filterEditFocus        int
 
 	// Pick-filter modal (Ctrl-F)
 	pickFilterIdx int
@@ -153,7 +157,7 @@ type Model struct {
 	resolveFocus  int
 }
 
-func New(client *grail.Client, envName string, envNames []string, makeClient func(string) (*grail.Client, error), vimMode bool) Model {
+func New(client *grail.Client, envName string, envNames []string, makeClient func(string) (*grail.Client, error), vimMode bool, timePickerFrom, timePickerTo []string) Model {
 	ed := NewEditor(vimMode)
 	ed.SetValue("from:now()-15m")
 
@@ -193,23 +197,25 @@ func New(client *grail.Client, envName string, envNames []string, makeClient fun
 	}
 
 	return Model{
-		client:         client,
-		envName:        envName,
-		envNames:       envNames,
-		makeClient:     makeClient,
-		focus:          focusEditor,
-		currentView:    viewQuery,
-		editor:         ed,
-		table:          t,
-		detail:         vp,
-		spinner:        sp,
-		state:          stateIdle,
-		infoMsg:        infoMsg,
-		savedQueries:   saved,
-		savedDefault:   defaultName,
-		savedEditBody:  editBody,
-		filters:        filters,
-		pendingAutoRun: autoRun,
+		client:              client,
+		envName:             envName,
+		envNames:            envNames,
+		makeClient:          makeClient,
+		timePickerFromSpecs: timePickerFrom,
+		timePickerToSpecs:   timePickerTo,
+		focus:               focusEditor,
+		currentView:         viewQuery,
+		editor:              ed,
+		table:               t,
+		detail:              vp,
+		spinner:             sp,
+		state:               stateIdle,
+		infoMsg:             infoMsg,
+		savedQueries:        saved,
+		savedDefault:        defaultName,
+		savedEditBody:       editBody,
+		filters:             filters,
+		pendingAutoRun:      autoRun,
 	}
 }
 

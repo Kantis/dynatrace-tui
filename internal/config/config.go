@@ -28,7 +28,19 @@ type Loaded struct {
 	Names    []string // ordered as in the file
 	Selected string   // resolved selection (CLI flag → `default:` → first)
 	VimMode  bool     // top-level `vim_mode:` — opt-in vim modal editor
-	specs    map[string]envSpec
+	// Time-picker preset lists. nil means "unset, use built-in defaults";
+	// a non-nil (possibly empty) slice means "use exactly this list".
+	TimePickerFrom []string
+	TimePickerTo   []string
+	specs          map[string]envSpec
+}
+
+// timePickerConfig is the optional `time_picker:` block. Both fields default to
+// nil when unset so the consumer can distinguish "not configured" from
+// "configured to be empty".
+type timePickerConfig struct {
+	From []string `yaml:"from"`
+	To   []string `yaml:"to"`
 }
 
 type envSpec struct {
@@ -47,7 +59,8 @@ type fileShape struct {
 	Default      string    `yaml:"default"`
 
 	// Top-level UI prefs (env-independent).
-	VimMode bool `yaml:"vim_mode"`
+	VimMode    bool             `yaml:"vim_mode"`
+	TimePicker timePickerConfig `yaml:"time_picker"`
 
 	// Legacy single-environment shape — synthesised into a single env named
 	// "default" when `environments` is absent.
@@ -109,7 +122,14 @@ func Load(path, selectedEnv string) (*Loaded, error) {
 		specs = map[string]envSpec{"default": spec}
 	}
 
-	loaded := &Loaded{Path: path, Names: names, VimMode: f.VimMode, specs: specs}
+	loaded := &Loaded{
+		Path:           path,
+		Names:          names,
+		VimMode:        f.VimMode,
+		TimePickerFrom: f.TimePicker.From,
+		TimePickerTo:   f.TimePicker.To,
+		specs:          specs,
+	}
 
 	pick := selectedEnv
 	if pick == "" {

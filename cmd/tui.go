@@ -41,7 +41,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	}
 
 	prog := tea.NewProgram(
-		tui.New(client, loaded.Selected, loaded.Names, makeClient, loaded.VimMode),
+		tui.New(client, loaded.Selected, loaded.Names, makeClient, loaded.VimMode, loaded.TimePickerFrom, loaded.TimePickerTo),
 		tea.WithAltScreen(),
 	)
 	_, err = prog.Run()
