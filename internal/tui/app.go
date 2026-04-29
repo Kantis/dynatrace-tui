@@ -595,7 +595,7 @@ func (m Model) runQuery() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.pendingChart = false
-	return m.startQuery(dql.PrependFetch(body), "running…")
+	return m.startQuery(dql.EnsureDefaultSort(dql.PrependFetch(body)), "running…")
 }
 
 func (m Model) runChart() (tea.Model, tea.Cmd) {

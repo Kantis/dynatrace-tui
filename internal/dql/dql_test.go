@@ -57,6 +57,32 @@ func TestSubstitute(t *testing.T) {
 	}
 }
 
+func TestEnsureDefaultSort(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"plain fetch", "fetch logs", "fetch logs | sort timestamp desc"},
+		{"with limit", "fetch logs | limit 5", "fetch logs | limit 5 | sort timestamp desc"},
+		{"trailing pipe and whitespace", "fetch logs |  ", "fetch logs | sort timestamp desc"},
+		{"already sorted", "fetch logs | sort timestamp asc", "fetch logs | sort timestamp asc"},
+		{"sort with extra whitespace", "fetch logs |  sort foo desc", "fetch logs |  sort foo desc"},
+		{"sort with mixed case", "fetch logs | Sort timestamp desc", "fetch logs | Sort timestamp desc"},
+		{"summarize skips", "fetch logs | summarize count(), by:loglevel", "fetch logs | summarize count(), by:loglevel"},
+		{"makeTimeseries skips", "fetch logs | makeTimeseries count=count(), interval:1m", "fetch logs | makeTimeseries count=count(), interval:1m"},
+		{"fieldsSummary skips", "fetch logs | fieldsSummary", "fetch logs | fieldsSummary"},
+		{"fields does not skip", "fetch logs | fields timestamp, content", "fetch logs | fields timestamp, content | sort timestamp desc"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := EnsureDefaultSort(c.in); got != c.want {
+				t.Errorf("EnsureDefaultSort(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
 func TestSubstituteTimeframe_PlaceholderTakesPrecedence(t *testing.T) {
 	got, err := SubstituteTimeframe("fetch logs, from:$timeframe | limit 5", "1h")
 	if err != nil {

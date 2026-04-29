@@ -172,6 +172,27 @@ func PrependFetch(body string) string {
 	return "fetch logs, " + trimmed
 }
 
+var (
+	sortClauseRE        = regexp.MustCompile(`(?i)\|\s*sort\b`)
+	noTimestampClauseRE = regexp.MustCompile(`(?i)\|\s*(summarize|makeTimeseries|fieldsSummary)\b`)
+)
+
+// EnsureDefaultSort appends `| sort timestamp desc` so results land in the
+// order users expect. Grail returns rows in scan order otherwise — the
+// Dynatrace UI hides this by sorting client-side, but we don't, so the
+// default needs to come from the query itself.
+//
+// Skips when the query already contains a `sort` clause (don't override the
+// user's choice) or an aggregation that drops/replaces `timestamp`
+// (`summarize`, `makeTimeseries`, `fieldsSummary`) — appending a sort there
+// would make Grail reject the query.
+func EnsureDefaultSort(query string) string {
+	if sortClauseRE.MatchString(query) || noTimestampClauseRE.MatchString(query) {
+		return query
+	}
+	return strings.TrimRight(query, " \t\n|") + " | sort timestamp desc"
+}
+
 // StripFetch is the inverse of PrependFetch: removes a leading `fetch logs[,]`
 // so a stored or imported query becomes the body the editor displays. Queries
 // that don't start with `fetch logs` pass through unchanged.
