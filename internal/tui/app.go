@@ -65,8 +65,9 @@ type Model struct {
 	detail  viewport.Model
 	spinner spinner.Model
 
-	columns []string
-	records grail.Records
+	columns     []string
+	records     grail.Records
+	recordOrder []string // column order from Grail metadata; nil falls back to heuristic
 
 	state    runState
 	errMsg   string
@@ -615,6 +616,7 @@ func (m Model) startQuery(query, infoMsg string) (tea.Model, tea.Cmd) {
 	m.errMsg = ""
 	m.infoMsg = infoMsg
 	m.records = nil
+	m.recordOrder = nil
 	m.rowCount = 0
 	m.applyLayout()
 
@@ -650,8 +652,10 @@ func (m Model) applyResult(resp *grail.Response) (Model, tea.Cmd) {
 	switch resp.State {
 	case grail.StateSucceeded:
 		records := grail.Records{}
+		var order []string
 		if resp.Result != nil {
 			records = resp.Result.Records
+			order = resp.Result.FieldOrder()
 		}
 		m.state = stateIdle
 		m.errMsg = ""
@@ -661,6 +665,7 @@ func (m Model) applyResult(resp *grail.Response) (Model, tea.Cmd) {
 			m.chartPendingFrom = time.Time{}
 			m.chartPendingTo = time.Time{}
 			m.records = nil
+			m.recordOrder = nil
 			m.rowCount = 0
 			m.populateTable()
 			m.detailKind = detailChart
@@ -676,6 +681,7 @@ func (m Model) applyResult(resp *grail.Response) (Model, tea.Cmd) {
 			return m, nil
 		}
 		m.records = records
+		m.recordOrder = order
 		m.rowCount = len(m.records)
 		m.infoMsg = fmt.Sprintf("%d records", m.rowCount)
 		m.populateTable()
@@ -718,7 +724,7 @@ func (m *Model) populateTable() {
 		return
 	}
 
-	cols := pickColumns(m.records)
+	cols := pickColumns(m.records, m.recordOrder)
 	m.columns = cols
 
 	tableCols := make([]tableColumn, len(cols))
@@ -970,9 +976,18 @@ func (m Model) statusLine() string {
 
 var preferredColumns = []string{"timestamp", "loglevel", "status", "content"}
 
-func pickColumns(records grail.Records) []string {
+// pickColumns returns the table columns to render. When `order` is non-empty
+// (Grail returned column metadata) it's used verbatim — that's the user's
+// authored projection, so we trust it. Otherwise we fall back to a heuristic:
+// preferred columns first, then alphabetical, with attribute fields
+// (dt.*/k8s.*/host.*) deprioritised so raw `fetch logs` doesn't drown the
+// table in noisy keys.
+func pickColumns(records grail.Records, order []string) []string {
 	if len(records) == 0 {
 		return []string{"(empty)"}
+	}
+	if len(order) > 0 {
+		return order
 	}
 	keys := map[string]bool{}
 	for _, r := range records {
@@ -991,14 +1006,23 @@ func pickColumns(records grail.Records) []string {
 		return out
 	}
 	rest := make([]string, 0, len(keys))
+	noisy := make([]string, 0)
 	for k := range keys {
 		if strings.HasPrefix(k, "dt.") || strings.HasPrefix(k, "k8s.") || strings.HasPrefix(k, "host.") {
-			continue // skip noisy attribute fields by default
+			noisy = append(noisy, k)
+			continue
 		}
 		rest = append(rest, k)
 	}
 	sort.Strings(rest)
+	sort.Strings(noisy)
 	for _, k := range rest {
+		if len(out) >= 4 {
+			break
+		}
+		out = append(out, k)
+	}
+	for _, k := range noisy {
 		if len(out) >= 4 {
 			break
 		}

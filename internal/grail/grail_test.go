@@ -131,6 +131,70 @@ func TestPollFailedState(t *testing.T) {
 	}
 }
 
+func TestFieldOrderPreservesProjection(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want []string
+	}{
+		{
+			name: "single types entry",
+			raw: `{"types":[{"indexRange":[0,1],"mappings":{` +
+				`"timestamp":{"type":"timestamp"},` +
+				`"k8s.container.name":{"type":"string"},` +
+				`"loglevel":{"type":"string"}}}]}`,
+			want: []string{"timestamp", "k8s.container.name", "loglevel"},
+		},
+		{
+			name: "multiple types union with dedupe",
+			raw: `{"types":[` +
+				`{"indexRange":[0,0],"mappings":{"timestamp":{"type":"timestamp"},"a":{"type":"string"}}},` +
+				`{"indexRange":[1,1],"mappings":{"timestamp":{"type":"timestamp"},"b":{"type":"string"}}}]}`,
+			want: []string{"timestamp", "a", "b"},
+		},
+		{
+			name: "missing types",
+			raw:  `{"grail":{"scannedRecords":1}}`,
+			want: nil,
+		},
+		{
+			name: "empty mappings",
+			raw:  `{"types":[{"indexRange":[0,0],"mappings":{}}]}`,
+			want: nil,
+		},
+		{
+			name: "malformed json",
+			raw:  `not json`,
+			want: nil,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			qr := &QueryResult{Metadata: json.RawMessage(c.raw)}
+			got := qr.FieldOrder()
+			if len(got) != len(c.want) {
+				t.Fatalf("FieldOrder() = %v, want %v", got, c.want)
+			}
+			for i, w := range c.want {
+				if got[i] != w {
+					t.Fatalf("FieldOrder()[%d] = %q, want %q (full: %v)", i, got[i], w, got)
+				}
+			}
+		})
+	}
+}
+
+func TestFieldOrderNilReceiver(t *testing.T) {
+	var qr *QueryResult
+	if got := qr.FieldOrder(); got != nil {
+		t.Errorf("FieldOrder on nil receiver = %v, want nil", got)
+	}
+	empty := &QueryResult{}
+	if got := empty.FieldOrder(); got != nil {
+		t.Errorf("FieldOrder on empty result = %v, want nil", got)
+	}
+}
+
 func TestServerErrorPropagates(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/query:execute", func(w http.ResponseWriter, r *http.Request) {

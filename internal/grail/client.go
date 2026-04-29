@@ -39,6 +39,75 @@ type QueryResult struct {
 	Metadata json.RawMessage `json:"metadata,omitempty"`
 }
 
+// FieldOrder returns the column names in the order Grail emitted them in the
+// response metadata. Records arrive as map[string]any, so this is the only way
+// to recover the projection order from `| fields …`, `summarize`, etc.
+//
+// Grail's metadata shape is `{"types":[{"mappings":{"<name>":{...},...}}]}`.
+// JSON object key order isn't preserved by Go's map decoder, so we stream-parse
+// the raw bytes via json.Decoder.Token() to read keys in document order.
+//
+// Returns nil when metadata is missing or doesn't match the expected shape;
+// callers fall back to their own ordering heuristic.
+func (qr *QueryResult) FieldOrder() []string {
+	if qr == nil || len(qr.Metadata) == 0 {
+		return nil
+	}
+	var meta struct {
+		Types []json.RawMessage `json:"types"`
+	}
+	if err := json.Unmarshal(qr.Metadata, &meta); err != nil || len(meta.Types) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, t := range meta.Types {
+		var typed struct {
+			Mappings json.RawMessage `json:"mappings"`
+		}
+		if err := json.Unmarshal(t, &typed); err != nil || len(typed.Mappings) == 0 {
+			continue
+		}
+		for _, k := range jsonObjectKeys(typed.Mappings) {
+			if !seen[k] {
+				seen[k] = true
+				out = append(out, k)
+			}
+		}
+	}
+	return out
+}
+
+// jsonObjectKeys reads the top-level keys of a JSON object in document order.
+// Returns nil if raw is not a JSON object.
+func jsonObjectKeys(raw json.RawMessage) []string {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	tok, err := dec.Token()
+	if err != nil {
+		return nil
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return nil
+	}
+	var keys []string
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		key, ok := tok.(string)
+		if !ok {
+			return nil
+		}
+		keys = append(keys, key)
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return nil
+		}
+	}
+	return keys
+}
+
 // Response is the envelope returned by query:execute and query:poll.
 type Response struct {
 	State        State        `json:"state"`
