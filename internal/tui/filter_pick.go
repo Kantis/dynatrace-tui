@@ -234,12 +234,31 @@ func (m Model) viewResolveFilter() string {
 }
 
 // insertFilterIntoEditor appends the (already-substituted) filter fragment
-// to the current editor body as a new pipe stage. The leading `filter ` is
+// to the active editor body as a new pipe stage. The leading `filter ` is
 // added automatically when the fragment doesn't already start with one, so
-// users can keep their templates as bare predicates. Closes any open modal
-// and switches back to the query view so focus lands on the editor.
+// users can keep their templates as bare predicates. Closes any open modal.
+//
+// The active editor depends on where the pick was triggered: from the
+// Saved-searches edit form, the fragment lands in the saved-search body
+// and the user stays in that view; otherwise it lands in the main query
+// editor and the view flips back to viewQuery.
 func (m Model) insertFilterIntoEditor(fragment string) Model {
 	fragment = applyFilterPrefix(fragment)
+	if m.currentView == viewSaved && m.savedMode == savedModeEditing {
+		body := strings.TrimRight(m.savedEditBody.Value(), " \n")
+		if body == "" {
+			m.savedEditBody.SetValue(fragment)
+		} else {
+			m.savedEditBody.SetValue(body + "\n| " + fragment)
+		}
+		m.modal = modalNone
+		m.savedEditFocus = savedEditFocusBody
+		m.savedEditNameInput.Blur()
+		m.savedEditBody.Focus()
+		m.infoMsg = "inserted filter"
+		m.state = stateIdle
+		return m
+	}
 	body := strings.TrimRight(m.editor.Value(), " \n")
 	if body == "" {
 		m.editor.SetValue(fragment)

@@ -193,6 +193,16 @@ func (m Model) enterSavedView() Model {
 }
 
 func (m Model) updateSavedView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Filter pick/resolve modals can be opened from saved-edit mode (Ctrl-F).
+	// Route them here so the modal owns the keys until it closes.
+	switch m.modal {
+	case modalPickFilter:
+		next, cmd := m.updatePickFilter(msg)
+		return next, cmd
+	case modalResolveFilter:
+		next, cmd := m.updateResolveFilter(msg)
+		return next, cmd
+	}
 	if m.savedMode == savedModeEditing {
 		return m.updateSavedEdit(msg)
 	}
@@ -294,6 +304,14 @@ func (m Model) updateSavedEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab":
 		m = m.cycleSavedEditFocus(true)
 		return m, nil
+	case "ctrl+f":
+		// Inserts into the saved-search body just like Ctrl-F does in the
+		// query editor; only meaningful when the body has focus, otherwise
+		// the keypress would interrupt name editing.
+		if m.savedEditFocus == savedEditFocusBody {
+			return m.openPickFilter(), nil
+		}
+		return m, nil
 	case "ctrl+s":
 		name := strings.TrimSpace(m.savedEditNameInput.Value())
 		if name == "" {
@@ -362,6 +380,12 @@ func (m Model) cycleSavedEditFocus(reverse bool) Model {
 }
 
 func (m Model) viewSavedSearches() string {
+	switch m.modal {
+	case modalPickFilter:
+		return m.viewPickFilter()
+	case modalResolveFilter:
+		return m.viewResolveFilter()
+	}
 	var sections []string
 	sections = append(sections, m.renderTabs())
 
@@ -457,7 +481,7 @@ func (m Model) savedStatusLine() string {
 	}
 	var right string
 	if m.savedMode == savedModeEditing {
-		right = "Tab switch · Ctrl-S save · Esc cancel"
+		right = "Tab switch · Ctrl-F insert filter · Ctrl-S save · Esc cancel"
 	} else {
 		right = "↑/↓ select · e edit · Enter run · * default · d delete · Alt-1 query"
 	}
