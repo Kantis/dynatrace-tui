@@ -17,6 +17,7 @@ type TokenProvider interface {
 
 type Client struct {
 	BaseURL    string
+	EnvID      string
 	Tokens     TokenProvider
 	HTTPClient *http.Client
 }
@@ -132,6 +133,7 @@ func (e *APIError) Error() string {
 func New(envID string, tp TokenProvider) *Client {
 	return &Client{
 		BaseURL:    fmt.Sprintf("https://%s.apps.dynatrace.com/platform/storage/query/v1", envID),
+		EnvID:      envID,
 		Tokens:     tp,
 		HTTPClient: &http.Client{Timeout: 90 * time.Second},
 	}

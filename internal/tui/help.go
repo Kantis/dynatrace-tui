@@ -27,6 +27,7 @@ var helpSections = []helpSection{
 		{"Ctrl-P", "fill $param templates"},
 		{"Ctrl-X", "export results"},
 		{"Ctrl-E", "switch environment"},
+		{"Ctrl-B", "open in browser (Notebooks)"},
 		{"Alt-1 / Alt-2 / Alt-3", "switch view (Query / Saved / Fragments)"},
 		{"Tab / Shift-Tab", "cycle focus"},
 		{"?", "this help"},

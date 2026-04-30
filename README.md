@@ -99,6 +99,7 @@ with `fetch ...` (e.g. `fetch events`) or with `|` are handled correctly.
 | `Ctrl-O` | Jump to the Saved Searches view |
 | `Ctrl-P` | Fill `$placeholder` parameters in the current query |
 | `Ctrl-E` | Switch environment (when more than one is configured) |
+| `Ctrl-B` | Open the current query in Dynatrace Notebooks (web UI) |
 | `Ctrl-X` | Export results as JSON or CSV (all rows or current row) |
 | `Ctrl-R` | Redo (vim-style) — pairs with `u` for undo in normal mode |
 | `q` | Close detail view, or quit when results are focused |

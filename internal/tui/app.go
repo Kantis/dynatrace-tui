@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/kantis/dynatrace-tui/internal/browser"
 	"github.com/kantis/dynatrace-tui/internal/dql"
 	"github.com/kantis/dynatrace-tui/internal/grail"
 )
@@ -179,7 +180,7 @@ func New(client *grail.Client, envName string, envNames []string, makeClient fun
 	editBody := NewEditor(vimMode)
 	editBody.Blur()
 
-	infoMsg := "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Alt-2 saved · Alt-3 fragments · Ctrl-F insert fragment · Ctrl-S save · Ctrl-P params · Ctrl-X export · Ctrl-E env · q quit"
+	infoMsg := "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Ctrl-B browser · Alt-2 saved · Alt-3 fragments · Ctrl-F insert fragment · Ctrl-S save · Ctrl-P params · Ctrl-X export · Ctrl-E env · q quit"
 	autoRun := false
 	// If a default saved search exists and resolves to a non-empty body,
 	// preload the editor with it and queue an auto-run for after Init().
@@ -468,6 +469,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+		return m, nil
+	case "ctrl+b":
+		body := strings.TrimSpace(m.editor.Value())
+		if body == "" {
+			m.errMsg = "query is empty"
+			m.state = stateError
+			return m, nil
+		}
+		if err := browser.Open(dql.NotebookURL(m.client.EnvID, dql.PrependFetch(body))); err != nil {
+			m.errMsg = "open browser: " + err.Error()
+			m.state = stateError
+			return m, nil
+		}
+		m.infoMsg = "opened in browser"
+		m.state = stateIdle
+		m.errMsg = ""
 		return m, nil
 	case "esc":
 		if m.focus == focusDetail {
