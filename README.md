@@ -8,44 +8,10 @@ A small Go CLI / TUI for searching Dynatrace logs with DQL.
 
 ## Getting started
 
-### 1. Create a Platform Token
-
-Sign in to <https://myaccount.dynatrace.com/platformTokens> and create a new
-Platform Token with these scopes:
-
-- `storage:logs:read`
-- `storage:buckets:read`
-
-Copy the generated token — it looks like `dt0s16.XXXXXXXX.YYYY...`. You only
-see it once.
-
-### 2. Write a config file
-
-Create `~/.config/dynatrace-tui/config.yaml`:
-
-```yaml
-environments:
-  PROD:
-    environment_id: abc12345    # the prefix in https://<env-id>.apps.dynatrace.com
-    platform_token: dt0s16.XXXXXXXX.YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY
-  TEST:
-    environment_id: def67890
-    platform_token: dt0s16.AAAAAAAA.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
-# Optional: pin a starting environment by name. Defaults to the first one
-# in the file.
-default: PROD
-```
-
-Tighten permissions since the file holds a secret:
+### 1. Install Go
 
 ```sh
-chmod 600 ~/.config/dynatrace-tui/config.yaml
-```
-
-### 3. Install and run
-
-```sh
-go install ./cmd/dttui
+brew install golang
 ```
 
 Make sure Go's bin directory is on your `PATH` — add this to `~/.zshrc`
@@ -55,7 +21,41 @@ Make sure Go's bin directory is on your `PATH` — add this to `~/.zshrc`
 export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
-Then:
+### 2. Clone and install
+
+```sh
+git clone git@github.com:Kantis/dynatrace-tui.git
+cd dynatrace-tui
+go install ./cmd/dttui
+```
+
+### 3. Generate a config scaffold
+
+```sh
+dttui generate-config
+```
+
+This writes a starter `~/.config/dynatrace-tui/config.yaml` (mode `0600`)
+with placeholders for one environment and commented-out examples for
+additional environments and the time-range picker. Pass `--config <path>`
+to write somewhere else, or `--force` to overwrite an existing file.
+
+### 4. Create a Platform Token and fill in the config
+
+Sign in to <https://myaccount.dynatrace.com/platformTokens> and create a
+new Platform Token with these scopes:
+
+- `storage:logs:read`
+- `storage:buckets:read`
+
+Copy the generated token — it looks like `dt0s16.XXXXXXXX.YYYY...`. You
+only see it once. Open the config file and replace the two `REPLACE_ME`
+placeholders under `environments.PROD`:
+
+- `environment_id` — the prefix in `https://<env-id>.apps.dynatrace.com`
+- `platform_token` — the token you just generated
+
+### 5. Run a query
 
 ```sh
 dttui query 'fetch logs, from:now()-15m | limit 5'
@@ -226,8 +226,7 @@ or CSV. Files land in the current working directory as
 
 `~/.config/dynatrace-tui/config.yaml` — env vars override file values.
 
-Each environment can use either a Platform Token (recommended for personal
-use) or OAuth (machine-to-machine):
+Each environment is authenticated with a Platform Token:
 
 ```yaml
 environments:
@@ -236,12 +235,7 @@ environments:
     platform_token: dt0s16.XXXX.YYYY
   TEST:
     environment_id: def67890
-    oauth:
-      client_id: dt0s02.XXXX
-      client_secret: dt0s02.XXXX.YYYY
-      scopes:
-        - storage:logs:read
-        - storage:buckets:read
+    platform_token: dt0s16.AAAA.BBBB
 
 # Optional. The first environment in the file is used when neither
 # `default:` nor `--env` is set.
@@ -277,12 +271,10 @@ Pick an environment with `--env <name>` (or `-e <name>`); inside the TUI use
 suffix on the Query and Results pane titles.
 
 The legacy single-environment shape (top-level `environment_id` /
-`platform_token` / `oauth`) is still accepted and is treated as a single
-environment named `default`.
+`platform_token`) is still accepted and is treated as a single environment
+named `default`.
 
 | Env var | Overrides |
 | --- | --- |
 | `DT_ENVIRONMENT_ID` | the active environment's `environment_id` |
 | `DT_PLATFORM_TOKEN` | the active environment's `platform_token` |
-| `DT_OAUTH_CLIENT_ID` | the active environment's `oauth.client_id` |
-| `DT_OAUTH_CLIENT_SECRET` | the active environment's `oauth.client_secret` |

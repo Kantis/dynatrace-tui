@@ -18,14 +18,15 @@ CI runs `go build ./...` then `go test -race ./...` on PRs and `main`
 ## Layout
 
 - `cmd/dttui/main.go` — entrypoint; everything else hangs off `cmd.Root()`.
-- `cmd/{root,query,tui}.go` — Cobra wiring. `query` is the headless
-  subcommand; running `dttui` with no args boots the TUI.
+- `cmd/{root,query,tui,generate_config}.go` — Cobra wiring. `query` is the
+  headless subcommand; `generate-config` writes a starter config; running
+  `dttui` with no args boots the TUI.
 - `internal/config` — YAML config loader. Supports both the multi-env
   shape (`environments:` map, ordered) and the legacy single-env shape
   (top-level fields synthesised into a `default` env). `DT_*` env vars
   override resolved values.
-- `internal/auth` — `auth.Static` (Platform Token) and `auth.New` (OAuth
-  client-credentials). Both implement `grail.TokenProvider`.
+- `internal/auth` — `auth.Static` wraps a Platform Token and implements
+  `grail.TokenProvider`. Platform Tokens are the only supported auth.
 - `internal/grail` — Grail client: `Execute` (POST query), `PollUntilDone`
   (GET poll), `Cancel` (best-effort `query:cancel` on Ctrl-C).
 - `internal/dql` — Pure string transforms on DQL. `PrependFetch` /

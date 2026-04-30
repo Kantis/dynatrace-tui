@@ -47,13 +47,7 @@ func runQuery(parent context.Context, query, timeframe string) error {
 		return err
 	}
 
-	var tokens grail.TokenProvider
-	if cfg.PlatformToken != "" {
-		tokens = auth.Static(cfg.PlatformToken)
-	} else {
-		tokens = auth.New(cfg.ClientID, cfg.ClientSecret, cfg.Scopes)
-	}
-	client := grail.New(cfg.EnvironmentID, tokens)
+	client := grail.New(cfg.EnvironmentID, auth.Static(cfg.PlatformToken))
 
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()

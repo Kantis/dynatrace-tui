@@ -14,11 +14,7 @@ import (
 type Config struct {
 	Name          string
 	EnvironmentID string
-	// Exactly one of PlatformToken or (ClientID+ClientSecret) is set after Load.
 	PlatformToken string
-	ClientID      string
-	ClientSecret  string
-	Scopes        []string
 }
 
 // Loaded is the parsed config file. It owns the ordered list of environment
@@ -46,11 +42,6 @@ type timePickerConfig struct {
 type envSpec struct {
 	EnvironmentID string `yaml:"environment_id"`
 	PlatformToken string `yaml:"platform_token"`
-	OAuth         struct {
-		ClientID     string   `yaml:"client_id"`
-		ClientSecret string   `yaml:"client_secret"`
-		Scopes       []string `yaml:"scopes"`
-	} `yaml:"oauth"`
 }
 
 type fileShape struct {
@@ -66,14 +57,7 @@ type fileShape struct {
 	// "default" when `environments` is absent.
 	EnvironmentID string `yaml:"environment_id"`
 	PlatformToken string `yaml:"platform_token"`
-	OAuth         struct {
-		ClientID     string   `yaml:"client_id"`
-		ClientSecret string   `yaml:"client_secret"`
-		Scopes       []string `yaml:"scopes"`
-	} `yaml:"oauth"`
 }
-
-var defaultScopes = []string{"storage:logs:read", "storage:buckets:read"}
 
 func DefaultPath() (string, error) {
 	home, err := os.UserHomeDir()
@@ -110,14 +94,11 @@ func Load(path, selectedEnv string) (*Loaded, error) {
 	}
 
 	// Back-compat: synthesise a single "default" env from legacy top-level fields.
-	if len(names) == 0 && (f.EnvironmentID != "" || f.PlatformToken != "" || f.OAuth.ClientID != "") {
+	if len(names) == 0 && (f.EnvironmentID != "" || f.PlatformToken != "") {
 		spec := envSpec{
 			EnvironmentID: f.EnvironmentID,
 			PlatformToken: f.PlatformToken,
 		}
-		spec.OAuth.ClientID = f.OAuth.ClientID
-		spec.OAuth.ClientSecret = f.OAuth.ClientSecret
-		spec.OAuth.Scopes = f.OAuth.Scopes
 		names = []string{"default"}
 		specs = map[string]envSpec{"default": spec}
 	}
@@ -153,15 +134,10 @@ func (l *Loaded) Config(name string) (Config, error) {
 	if name == "" {
 		name = l.Selected
 	}
-	cfg := Config{Name: name, Scopes: defaultScopes}
+	cfg := Config{Name: name}
 	if spec, ok := l.specs[name]; ok {
 		cfg.EnvironmentID = spec.EnvironmentID
 		cfg.PlatformToken = spec.PlatformToken
-		cfg.ClientID = spec.OAuth.ClientID
-		cfg.ClientSecret = spec.OAuth.ClientSecret
-		if len(spec.OAuth.Scopes) > 0 {
-			cfg.Scopes = spec.OAuth.Scopes
-		}
 	} else if name != "" {
 		return Config{}, fmt.Errorf("environment %q not found in config", name)
 	}
@@ -172,20 +148,12 @@ func (l *Loaded) Config(name string) (Config, error) {
 	if v := os.Getenv("DT_PLATFORM_TOKEN"); v != "" {
 		cfg.PlatformToken = v
 	}
-	if v := os.Getenv("DT_OAUTH_CLIENT_ID"); v != "" {
-		cfg.ClientID = v
-	}
-	if v := os.Getenv("DT_OAUTH_CLIENT_SECRET"); v != "" {
-		cfg.ClientSecret = v
-	}
 
 	if cfg.EnvironmentID == "" {
 		return Config{}, fmt.Errorf("missing environment_id for %q (set DT_ENVIRONMENT_ID or %s)", name, l.Path)
 	}
-	hasPT := cfg.PlatformToken != ""
-	hasOAuth := cfg.ClientID != "" && cfg.ClientSecret != ""
-	if !hasPT && !hasOAuth {
-		return Config{}, fmt.Errorf("missing credentials for %q: set platform_token (DT_PLATFORM_TOKEN) or oauth.client_id/client_secret (DT_OAUTH_CLIENT_ID/SECRET) in %s", name, l.Path)
+	if cfg.PlatformToken == "" {
+		return Config{}, fmt.Errorf("missing platform_token for %q (set DT_PLATFORM_TOKEN or %s)", name, l.Path)
 	}
 	if cfg.Name == "" {
 		cfg.Name = "default"

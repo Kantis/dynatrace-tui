@@ -22,5 +22,6 @@ func Root() *cobra.Command {
 	root.PersistentFlags().StringVarP(&envName, "env", "e", "", "name of the environment to use (overrides `default:` in config)")
 
 	root.AddCommand(queryCmd())
+	root.AddCommand(generateConfigCmd())
 	return root
 }

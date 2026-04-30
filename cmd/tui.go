@@ -26,13 +26,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return nil, err
 		}
-		var tokens grail.TokenProvider
-		if cfg.PlatformToken != "" {
-			tokens = auth.Static(cfg.PlatformToken)
-		} else {
-			tokens = auth.New(cfg.ClientID, cfg.ClientSecret, cfg.Scopes)
-		}
-		return grail.New(cfg.EnvironmentID, tokens), nil
+		return grail.New(cfg.EnvironmentID, auth.Static(cfg.PlatformToken)), nil
 	}
 
 	client, err := makeClient(loaded.Selected)
