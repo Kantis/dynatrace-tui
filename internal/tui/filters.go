@@ -17,7 +17,7 @@ import (
 
 // SavedFilter is a reusable DQL fragment with optional `$placeholder`
 // substitution. The `Template` is stored *without* a leading ` | ` —
-// the picker prepends one when appending the filter to a non-empty editor.
+// the picker prepends one when appending the fragment to a non-empty editor.
 type SavedFilter struct {
 	Name        string              `yaml:"name"`
 	Template    string              `yaml:"template"`
@@ -25,7 +25,7 @@ type SavedFilter struct {
 }
 
 type filtersFile struct {
-	Filters []SavedFilter `yaml:"filters"`
+	Filters []SavedFilter `yaml:"fragments"`
 }
 
 func savedFiltersPath() (string, error) {
@@ -33,7 +33,7 @@ func savedFiltersPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "dynatrace-tui", "filters.yaml"), nil
+	return filepath.Join(home, ".config", "dynatrace-tui", "fragments.yaml"), nil
 }
 
 func loadSavedFilters() ([]SavedFilter, error) {
@@ -72,7 +72,8 @@ func writeSavedFilters(fs []SavedFilter) error {
 
 // normalizeTemplate trims surrounding whitespace and any leading pipe so the
 // template is stored as a clean fragment. The picker re-adds ` | ` when
-// appending to a non-empty editor body.
+// appending to a non-empty editor body. The user is responsible for any
+// leading verb (`filter`, `sort`, etc.) — fragments are inserted verbatim.
 func normalizeTemplate(s string) string {
 	s = strings.TrimSpace(s)
 	for strings.HasPrefix(s, "|") {
@@ -81,7 +82,7 @@ func normalizeTemplate(s string) string {
 	return s
 }
 
-// --- Filters view (Alt-3) -------------------------------------------------
+// --- Fragments view (Alt-3) -----------------------------------------------
 
 type filtersMode int
 
@@ -169,7 +170,7 @@ func (m Model) enterFiltersEdit(isNew bool) Model {
 	m.filterEditIsNew = isNew
 
 	name := textinput.New()
-	name.Placeholder = "filter name (e.g. by-service)"
+	name.Placeholder = "fragment name (e.g. by-service)"
 	name.SetValue(src.Name)
 	name.CharLimit = 64
 	name.Width = 40
@@ -179,7 +180,7 @@ func (m Model) enterFiltersEdit(isNew bool) Model {
 	tmpl := textarea.New()
 	tmpl.ShowLineNumbers = false
 	tmpl.CharLimit = 0
-	tmpl.Placeholder = `loglevel == "$level"   (no need for leading "filter")`
+	tmpl.Placeholder = `filter loglevel == "$level"`
 	tmpl.SetValue(src.Template)
 	tmpl.Blur()
 	m.filterEditTemplate = tmpl
@@ -422,7 +423,7 @@ func (m Model) saveFilterEdit() (tea.Model, tea.Cmd) {
 			continue
 		}
 		if f.Name == name {
-			m.errMsg = "another filter already uses that name"
+			m.errMsg = "another fragment already uses that name"
 			m.state = stateError
 			return m, nil
 		}
@@ -441,7 +442,7 @@ func (m Model) saveFilterEdit() (tea.Model, tea.Cmd) {
 		m.state = stateError
 		return m, nil
 	}
-	m.infoMsg = "saved filter " + name
+	m.infoMsg = "saved fragment " + name
 	m.errMsg = ""
 	m.state = stateIdle
 	m.filtersMode = filtersModeList

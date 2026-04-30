@@ -178,7 +178,7 @@ func New(client *grail.Client, envName string, envNames []string, makeClient fun
 	editBody := NewEditor(vimMode)
 	editBody.Blur()
 
-	infoMsg := "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Alt-2 saved · Alt-3 filters · Ctrl-F insert filter · Ctrl-S save · Ctrl-P params · Ctrl-X export · Ctrl-E env · q quit"
+	infoMsg := "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Alt-2 saved · Alt-3 fragments · Ctrl-F insert fragment · Ctrl-S save · Ctrl-P params · Ctrl-X export · Ctrl-E env · q quit"
 	autoRun := false
 	// If a default saved search exists and resolves to a non-empty body,
 	// preload the editor with it and queue an auto-run for after Init().
@@ -894,7 +894,7 @@ func (m Model) renderTabs() string {
 	}{
 		{viewQuery, "(1) Query"},
 		{viewSaved, "(2) Saved searches"},
-		{viewFilters, "(3) Filters"},
+		{viewFilters, "(3) Fragments"},
 	}
 	parts := make([]string, len(labels))
 	for i, l := range labels {

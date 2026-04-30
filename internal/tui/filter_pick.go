@@ -10,12 +10,12 @@ import (
 	"github.com/kantis/dynatrace-tui/internal/dql"
 )
 
-// openPickFilter starts the Ctrl-F flow from the editor. With no filters
+// openPickFilter starts the Ctrl-F flow from the editor. With no fragments
 // configured the modal collapses into a one-line info message rather than
 // showing an empty list.
 func (m Model) openPickFilter() Model {
 	if len(m.filters) == 0 {
-		m.infoMsg = "no favorite filters — press Alt-3 to create one"
+		m.infoMsg = "no fragments — press Alt-3 to create one"
 		m.state = stateIdle
 		return m
 	}
@@ -86,10 +86,10 @@ func (m Model) updatePickFilter(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 func (m Model) viewPickFilter() string {
 	var b strings.Builder
-	b.WriteString(paneTitleFocused.Render("Insert favorite filter"))
+	b.WriteString(paneTitleFocused.Render("Insert fragment"))
 	b.WriteString("\n\n")
 	if len(m.filters) == 0 {
-		b.WriteString("(no filters — press Alt-3 to create one)\n\n")
+		b.WriteString("(no fragments — press Alt-3 to create one)\n\n")
 		b.WriteString(statusBar.Render("Esc close"))
 		return m.renderModalOverlay(b.String())
 	}
@@ -233,17 +233,17 @@ func (m Model) viewResolveFilter() string {
 	return m.renderModalOverlay(b.String())
 }
 
-// insertFilterIntoEditor appends the (already-substituted) filter fragment
-// to the active editor body as a new pipe stage. The leading `filter ` is
-// added automatically when the fragment doesn't already start with one, so
-// users can keep their templates as bare predicates. Closes any open modal.
+// insertFilterIntoEditor appends the (already-substituted) fragment to the
+// active editor body as a new pipe stage. The fragment is inserted verbatim
+// — the user is responsible for any leading verb (`filter`, `sort`, etc.).
+// Closes any open modal.
 //
 // The active editor depends on where the pick was triggered: from the
 // Saved-searches edit form, the fragment lands in the saved-search body
 // and the user stays in that view; otherwise it lands in the main query
 // editor and the view flips back to viewQuery.
 func (m Model) insertFilterIntoEditor(fragment string) Model {
-	fragment = applyFilterPrefix(fragment)
+	fragment = strings.TrimSpace(fragment)
 	if m.currentView == viewSaved && m.savedMode == savedModeEditing {
 		body := strings.TrimRight(m.savedEditBody.Value(), " \n")
 		if body == "" {
@@ -255,7 +255,7 @@ func (m Model) insertFilterIntoEditor(fragment string) Model {
 		m.savedEditFocus = savedEditFocusBody
 		m.savedEditNameInput.Blur()
 		m.savedEditBody.Focus()
-		m.infoMsg = "inserted filter"
+		m.infoMsg = "inserted fragment"
 		m.state = stateIdle
 		return m
 	}
@@ -269,20 +269,7 @@ func (m Model) insertFilterIntoEditor(fragment string) Model {
 	m.currentView = viewQuery
 	m.focus = focusEditor
 	m.editor.Focus()
-	m.infoMsg = "inserted filter"
+	m.infoMsg = "inserted fragment"
 	m.state = stateIdle
 	return m
-}
-
-// applyFilterPrefix prepends `filter ` to a template fragment unless one is
-// already present. Trims surrounding whitespace; case-sensitive to match DQL.
-func applyFilterPrefix(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return s
-	}
-	if strings.HasPrefix(s, "filter ") || strings.HasPrefix(s, "filter\t") {
-		return s
-	}
-	return "filter " + s
 }

@@ -1,7 +1,10 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/kantis/dynatrace-tui/internal/dql"
@@ -34,6 +37,23 @@ func TestSavedFiltersRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("round-trip mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
+
+	// Verify the on-disk file uses the `fragments:` top-level key so old
+	// `filters:` files don't accidentally still load.
+	p, err := savedFiltersPath()
+	if err != nil {
+		t.Fatalf("savedFiltersPath: %v", err)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), "fragments:") {
+		t.Errorf("expected on-disk YAML to contain `fragments:` key, got:\n%s", data)
+	}
+	if filepath.Base(p) != "fragments.yaml" {
+		t.Errorf("expected file to be named fragments.yaml, got %s", filepath.Base(p))
 	}
 }
 
@@ -73,13 +93,14 @@ func TestInsertFilterIntoEditor(t *testing.T) {
 		fragment string
 		want     string
 	}{
-		{"empty editor, bare predicate", "", `x == 1`, `filter x == 1`},
-		{"empty editor, already has filter", "", `filter x == 1`, `filter x == 1`},
-		{"non-empty editor, bare predicate", `from:now()-15m`, `x == 1`, "from:now()-15m\n| filter x == 1"},
-		{"non-empty editor, already has filter", `from:now()-15m`, `filter x == 1`, "from:now()-15m\n| filter x == 1"},
-		{"trailing whitespace trimmed", `from:now()-15m   `, `x == 1`, "from:now()-15m\n| filter x == 1"},
-		{"trailing newline trimmed", "from:now()-15m\n", `x == 1`, "from:now()-15m\n| filter x == 1"},
-		{"fragment whitespace trimmed", `from:now()-15m`, `  x == 1  `, "from:now()-15m\n| filter x == 1"},
+		{"empty editor, bare fragment", "", `x == 1`, `x == 1`},
+		{"empty editor, fragment with filter verb", "", `filter x == 1`, `filter x == 1`},
+		{"non-empty editor, bare fragment", `from:now()-15m`, `x == 1`, "from:now()-15m\n| x == 1"},
+		{"non-empty editor, fragment with filter verb", `from:now()-15m`, `filter x == 1`, "from:now()-15m\n| filter x == 1"},
+		{"non-empty editor, sort fragment", `from:now()-15m`, `sort timestamp desc`, "from:now()-15m\n| sort timestamp desc"},
+		{"trailing whitespace trimmed", `from:now()-15m   `, `filter x == 1`, "from:now()-15m\n| filter x == 1"},
+		{"trailing newline trimmed", "from:now()-15m\n", `filter x == 1`, "from:now()-15m\n| filter x == 1"},
+		{"fragment whitespace trimmed", `from:now()-15m`, `  filter x == 1  `, "from:now()-15m\n| filter x == 1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -96,7 +117,7 @@ func TestInsertFilterIntoEditor(t *testing.T) {
 func TestResolveFilterSubstitutesProvidedValues(t *testing.T) {
 	f := SavedFilter{
 		Name:     "by-service",
-		Template: `dt.entity.service == "$service" and loglevel == "$level"`,
+		Template: `filter dt.entity.service == "$service" and loglevel == "$level"`,
 	}
 	m := Model{editor: NewEditor(false)}
 	m = m.pickFilter(f)
@@ -124,7 +145,7 @@ func TestResolveFilterSubstitutesProvidedValues(t *testing.T) {
 func TestResolveFilterKeepsBlankPlaceholderLiteral(t *testing.T) {
 	f := SavedFilter{
 		Name:     "two-params",
-		Template: `a == "$x" and b == "$y"`,
+		Template: `filter a == "$x" and b == "$y"`,
 	}
 	m := Model{editor: NewEditor(false)}
 	m = m.pickFilter(f)
@@ -143,7 +164,7 @@ func TestResolveFilterKeepsBlankPlaceholderLiteral(t *testing.T) {
 func TestPickFilterNoPlaceholdersInsertsDirectly(t *testing.T) {
 	f := SavedFilter{
 		Name:     "no-params",
-		Template: `loglevel == "ERROR"`,
+		Template: `filter loglevel == "ERROR"`,
 	}
 	m := Model{editor: NewEditor(false)}
 	m.editor.SetValue("from:now()-15m")
@@ -158,19 +179,21 @@ func TestPickFilterNoPlaceholdersInsertsDirectly(t *testing.T) {
 	}
 }
 
-func TestApplyFilterPrefix(t *testing.T) {
-	cases := map[string]string{
-		``:                                 ``,
-		`x == 1`:                           `filter x == 1`,
-		`  x == 1  `:                       `filter x == 1`,
-		`filter x == 1`:                    `filter x == 1`,
-		`filter   x == 1`:                  `filter   x == 1`,
-		`filtering`:                        `filter filtering`, // does not match `filter `
+func TestPickFilterInsertsFragmentVerbatim(t *testing.T) {
+	f := SavedFilter{
+		Name:     "sort-by-time",
+		Template: `sort timestamp desc`,
 	}
-	for in, want := range cases {
-		if got := applyFilterPrefix(in); got != want {
-			t.Errorf("applyFilterPrefix(%q) = %q, want %q", in, got, want)
-		}
+	m := Model{editor: NewEditor(false)}
+	m.editor.SetValue("from:now()-15m")
+	m = m.pickFilter(f)
+
+	if m.modal != modalNone {
+		t.Errorf("expected modal to be closed, got %v", m.modal)
+	}
+	want := "from:now()-15m\n| sort timestamp desc"
+	if got := m.editor.Value(); got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 

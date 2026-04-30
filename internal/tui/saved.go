@@ -481,7 +481,7 @@ func (m Model) savedStatusLine() string {
 	}
 	var right string
 	if m.savedMode == savedModeEditing {
-		right = "Tab switch · Ctrl-F insert filter · Ctrl-S save · Esc cancel"
+		right = "Tab switch · Ctrl-F insert fragment · Ctrl-S save · Esc cancel"
 	} else {
 		right = "↑/↓ select · e edit · Enter run · * default · d delete · Alt-1 query"
 	}
