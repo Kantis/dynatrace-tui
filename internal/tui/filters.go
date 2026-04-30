@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -256,11 +255,11 @@ func (m *Model) layoutFilterEdit(innerW int) {
 	n := len(m.filterEditPlaceholders)
 
 	// Chrome line accounting:
-	//   tabs(1) + list+borders(listLines+2)
+	//   tabs(1) + list (header 1 + separator 1 + listLines + borders 2)
 	//   + name title(1) + name input area(3, includes border)
 	//   + template title(1) + template borders(2)
 	//   + status(1) + per-placeholder (title 1 + borders 2)
-	chrome := 1 + listLines + 2 + 1 + 3 + 1 + 2 + 1 + n*3
+	chrome := 1 + 2 + listLines + 2 + 1 + 3 + 1 + 2 + 1 + n*3
 	remaining := m.height - chrome
 	if remaining < 6 {
 		remaining = 6
@@ -476,20 +475,60 @@ func (m Model) renderFiltersList() string {
 	if len(m.filters) == 0 {
 		return "    (none — press n to create one)"
 	}
+
+	nameW, fragW := m.fragmentsTableWidth()
+	totalW := nameW + 3 + fragW
+
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
+	mutedStyle := lipgloss.NewStyle().Foreground(colorMuted)
+	selStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(colorAccent)
+
 	var b strings.Builder
-	nameStyle := lipgloss.NewStyle().Bold(true)
+	b.WriteString(headerStyle.Render(padRight("Name", nameW)))
+	b.WriteString(mutedStyle.Render(" │ "))
+	b.WriteString(headerStyle.Render(padRight("Fragment", fragW)))
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render(strings.Repeat("─", totalW)))
+	b.WriteString("\n")
+
 	for i, f := range m.filters {
-		cursor := "  "
-		if i == m.filtersListIdx {
-			cursor = "▶ "
-		}
-		line := fmt.Sprintf("%s — %s", nameStyle.Render(f.Name), truncate(f.Template, 60))
+		nameCell := padRight(truncate(f.Name, nameW), nameW)
+		fragCell := padRight(truncate(f.Template, fragW), fragW)
 		if i == m.filtersListIdx && m.filtersMode == filtersModeList {
-			line = lipgloss.NewStyle().Foreground(colorAccent).Render(line)
+			b.WriteString(selStyle.Render(nameCell + " │ " + fragCell))
+		} else {
+			b.WriteString(nameCell + mutedStyle.Render(" │ ") + fragCell)
 		}
-		b.WriteString(cursor + line + "\n")
+		b.WriteString("\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// fragmentsTableWidth returns (nameColW, fragmentColW) for the Alt-3 table.
+// Mirrors pickFilterTableWidth but budgets for the list pane border (2
+// chars) plus a small breathing margin rather than the centred-modal chrome.
+func (m Model) fragmentsTableWidth() (int, int) {
+	total := m.width - 4
+	if total < 40 {
+		total = 40
+	}
+	nameW := 0
+	for _, f := range m.filters {
+		if w := len(f.Name); w > nameW {
+			nameW = w
+		}
+	}
+	if nameW < len("Name") {
+		nameW = len("Name")
+	}
+	if nameW > 28 {
+		nameW = 28
+	}
+	fragW := total - nameW - 3
+	if fragW < 20 {
+		fragW = 20
+	}
+	return nameW, fragW
 }
 
 func (m Model) renderFilterPreview() string {
