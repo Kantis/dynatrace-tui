@@ -147,7 +147,8 @@ type Model struct {
 	filterEditFocus        int
 
 	// Pick-filter modal (Ctrl-F)
-	pickFilterIdx int
+	pickFilterIdx   int
+	pickFilterQuery string
 
 	// Resolve-filter modal
 	resolveFilter SavedFilter

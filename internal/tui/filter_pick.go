@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -21,6 +22,7 @@ func (m Model) openPickFilter() Model {
 	}
 	m.modal = modalPickFilter
 	m.pickFilterIdx = 0
+	m.pickFilterQuery = ""
 	return m
 }
 
@@ -57,31 +59,180 @@ func (m Model) pickFilter(f SavedFilter) Model {
 }
 
 func (m Model) updatePickFilter(msg tea.KeyMsg) (Model, tea.Cmd) {
+	matches := m.pickFilterMatches()
 	switch msg.String() {
 	case "esc":
 		m.modal = modalNone
 		return m, nil
-	case "up", "k":
+	case "up":
 		if m.pickFilterIdx > 0 {
 			m.pickFilterIdx--
 		}
 		return m, nil
-	case "down", "j":
-		if m.pickFilterIdx < len(m.filters)-1 {
+	case "down":
+		if m.pickFilterIdx < len(matches)-1 {
 			m.pickFilterIdx++
 		}
 		return m, nil
 	case "enter":
-		if len(m.filters) == 0 {
-			m.modal = modalNone
+		if len(matches) == 0 {
 			return m, nil
 		}
 		// pickFilter may switch us into the resolve modal or close the
 		// modal entirely (direct insert).
-		next := m.pickFilter(m.filters[m.pickFilterIdx])
+		next := m.pickFilter(m.filters[matches[m.pickFilterIdx]])
 		return next, textinput.Blink
+	case "backspace":
+		if m.pickFilterQuery != "" {
+			m.pickFilterQuery = m.pickFilterQuery[:len(m.pickFilterQuery)-1]
+			m.pickFilterIdx = 0
+		}
+		return m, nil
+	case "ctrl+u":
+		m.pickFilterQuery = ""
+		m.pickFilterIdx = 0
+		return m, nil
+	}
+
+	// Treat any single printable rune as a search character. msg.Runes is
+	// non-empty only for actual text input keys, so this naturally ignores
+	// modifier-bearing keys we don't handle above.
+	if len(msg.Runes) == 1 && msg.Runes[0] >= 0x20 {
+		m.pickFilterQuery += string(msg.Runes)
+		m.pickFilterIdx = 0
 	}
 	return m, nil
+}
+
+// pickFilterMatches returns the indices of m.filters that match the current
+// fuzzy query, ordered best-match-first. With no query, returns all indices
+// in their original order so the picker behaves like a plain list.
+func (m Model) pickFilterMatches() []int {
+	if strings.TrimSpace(m.pickFilterQuery) == "" {
+		out := make([]int, len(m.filters))
+		for i := range m.filters {
+			out[i] = i
+		}
+		return out
+	}
+	type scored struct {
+		idx, score int
+	}
+	var hits []scored
+	for i, f := range m.filters {
+		// Score against the name first; fall back to the template so users
+		// can also find a fragment by something memorable in its body.
+		nameOK, nameScore := fuzzyScore(m.pickFilterQuery, f.Name)
+		tmplOK, tmplScore := fuzzyScore(m.pickFilterQuery, f.Template)
+		switch {
+		case nameOK && tmplOK:
+			best := nameScore
+			if tmplScore > best {
+				best = tmplScore
+			}
+			// Slight bonus when the name itself matches — that's almost
+			// always what the user is reaching for.
+			if nameScore >= tmplScore {
+				best += 5
+			}
+			hits = append(hits, scored{i, best})
+		case nameOK:
+			hits = append(hits, scored{i, nameScore + 5})
+		case tmplOK:
+			hits = append(hits, scored{i, tmplScore})
+		}
+	}
+	sort.SliceStable(hits, func(a, b int) bool {
+		return hits[a].score > hits[b].score
+	})
+	out := make([]int, len(hits))
+	for i, h := range hits {
+		out[i] = h.idx
+	}
+	return out
+}
+
+// fuzzyScore reports whether needle is a (case-insensitive) subsequence of
+// haystack and, if so, a quality score where higher is better. Bonuses for
+// matches at word boundaries / starts / consecutive runs reward the kind of
+// matches a human reader would consider "obvious".
+func fuzzyScore(needle, haystack string) (bool, int) {
+	if needle == "" {
+		return true, 0
+	}
+	n := strings.ToLower(needle)
+	h := strings.ToLower(haystack)
+	score := 0
+	consecutive := 0
+	prevSep := true // treat string start like a word boundary
+	ni := 0
+	for hi := 0; hi < len(h) && ni < len(n); hi++ {
+		c := h[hi]
+		if c == n[ni] {
+			if hi == 0 {
+				score += 15
+			}
+			if prevSep {
+				score += 10
+			}
+			if consecutive > 0 {
+				score += 5
+			}
+			consecutive++
+			ni++
+		} else {
+			consecutive = 0
+		}
+		prevSep = isFuzzySep(c)
+	}
+	if ni < len(n) {
+		return false, 0
+	}
+	// Mild penalty for longer haystacks so a tight match beats a sparse one.
+	score -= len(h) / 8
+	return true, score
+}
+
+func isFuzzySep(c byte) bool {
+	switch c {
+	case ' ', '_', '-', '.', '/', '\t':
+		return true
+	}
+	return false
+}
+
+// pickFilterTableWidth returns (nameColW, fragmentColW) for the picker table,
+// scaled to the available terminal width. The name column is sized to the
+// longest fragment name (capped) so it never dominates the row.
+func (m Model) pickFilterTableWidth() (int, int) {
+	// Modal chrome: 2 border chars + 4 padding chars = 6. A little breathing
+	// room around the centred box keeps the table from crowding the edges.
+	total := m.width - 10
+	if total < 40 {
+		total = 40
+	}
+	if total > 140 {
+		total = 140
+	}
+
+	nameW := 0
+	for _, f := range m.filters {
+		if w := len(f.Name); w > nameW {
+			nameW = w
+		}
+	}
+	if nameW < len("Name") {
+		nameW = len("Name")
+	}
+	if nameW > 28 {
+		nameW = 28
+	}
+	// 3 chars between columns: " │ "
+	fragW := total - nameW - 3
+	if fragW < 20 {
+		fragW = 20
+	}
+	return nameW, fragW
 }
 
 func (m Model) viewPickFilter() string {
@@ -93,20 +244,64 @@ func (m Model) viewPickFilter() string {
 		b.WriteString(statusBar.Render("Esc close"))
 		return m.renderModalOverlay(b.String())
 	}
-	nameStyle := lipgloss.NewStyle().Bold(true)
+
+	matches := m.pickFilterMatches()
+	nameW, fragW := m.pickFilterTableWidth()
+	totalW := nameW + 3 + fragW
+
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 	mutedStyle := lipgloss.NewStyle().Foreground(colorMuted)
-	for i, f := range m.filters {
-		prefix := "  "
-		line := nameStyle.Render(f.Name) + "  " + mutedStyle.Render(truncate(f.Template, 50))
+	selStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(colorAccent)
+	sepStyle := mutedStyle
+
+	// Search input line (always visible — gives the cue that you can type).
+	searchLabel := mutedStyle.Render("Search: ")
+	cursor := lipgloss.NewStyle().Foreground(colorAccent).Render("▏")
+	b.WriteString(searchLabel + m.pickFilterQuery + cursor + "\n\n")
+
+	// Header row.
+	b.WriteString(headerStyle.Render(padRight("Name", nameW)))
+	b.WriteString(sepStyle.Render(" │ "))
+	b.WriteString(headerStyle.Render(padRight("Fragment", fragW)))
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render(strings.Repeat("─", totalW)))
+	b.WriteString("\n")
+
+	if len(matches) == 0 {
+		b.WriteString(mutedStyle.Render("(no matches)") + "\n\n")
+		b.WriteString(statusBar.Render("Type to search · Backspace · Ctrl-U clear · Esc cancel"))
+		return m.renderModalOverlay(b.String())
+	}
+
+	for i, idx := range matches {
+		f := m.filters[idx]
+		nameCell := padRight(truncate(f.Name, nameW), nameW)
+		fragCell := padRight(truncate(f.Template, fragW), fragW)
 		if i == m.pickFilterIdx {
-			prefix = "▶ "
-			line = lipgloss.NewStyle().Foreground(colorAccent).Render(f.Name) + "  " + mutedStyle.Render(truncate(f.Template, 50))
+			// Span the selection highlight across the full row width while
+			// keeping the column gutter so the Fragment column still lines
+			// up with the header.
+			b.WriteString(selStyle.Render(nameCell + " │ " + fragCell))
+		} else {
+			b.WriteString(nameCell + sepStyle.Render(" │ ") + fragCell)
 		}
-		b.WriteString(prefix + line + "\n")
+		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(statusBar.Render("↑/↓ select · Enter insert · Esc cancel"))
+	b.WriteString(statusBar.Render("Type to search · ↑/↓ select · Enter insert · Esc cancel"))
 	return m.renderModalOverlay(b.String())
+}
+
+// padRight pads s with spaces on the right so its visible width is exactly w.
+// Used to keep table cells aligned even when content is shorter than the
+// column. If s is already wider than w it's returned untouched (truncate
+// should have handled that upstream).
+func padRight(s string, w int) string {
+	vis := lipgloss.Width(s)
+	if vis >= w {
+		return s
+	}
+	return s + strings.Repeat(" ", w-vis)
 }
 
 // --- Resolve filter modal -------------------------------------------------
