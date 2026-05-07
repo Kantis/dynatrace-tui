@@ -123,7 +123,7 @@ func TestRenderRecordDetailIncludesExpandedAndAnsi(t *testing.T) {
 		"timestamp": "2026-04-28T12:00:00Z",
 		"content":   `{"event":"login"}`,
 	}
-	out := renderRecordDetail(rec, 0)
+	out := renderRecordDetail(rec, 0, false)
 	if !strings.Contains(out, "\x1b[") {
 		t.Errorf("expected ANSI codes in detail output")
 	}
@@ -138,12 +138,61 @@ func TestRenderRecordDetailIncludesExpandedAndAnsi(t *testing.T) {
 	}
 }
 
+func TestRenderRecordDetailSimplifiedShowsOnlyMsg(t *testing.T) {
+	rec := map[string]any{
+		"timestamp": "2026-04-28T12:00:00Z",
+		"host.name": "node-7",
+		"msg":       `{"event":"login","user":"emil"}`,
+	}
+	out := stripAnsi(renderRecordDetail(rec, 0, true))
+	if !strings.Contains(out, `"event"`) || !strings.Contains(out, `"user"`) {
+		t.Errorf("simplified output missing msg fields: %q", out)
+	}
+	if strings.Contains(out, "host.name") || strings.Contains(out, "timestamp") {
+		t.Errorf("simplified output should hide non-msg fields: %q", out)
+	}
+}
+
+func TestRenderRecordDetailSimplifiedFallsBackWithoutStructuredMsg(t *testing.T) {
+	rec := map[string]any{"timestamp": "t", "msg": "hello world"}
+	out := stripAnsi(renderRecordDetail(rec, 0, true))
+	if !strings.Contains(out, "timestamp") {
+		t.Errorf("expected full record when msg is scalar: %q", out)
+	}
+}
+
+func TestRenderRecordDetailFullIgnoresMsgShortcut(t *testing.T) {
+	rec := map[string]any{
+		"timestamp": "2026-04-28T12:00:00Z",
+		"msg":       `{"event":"login"}`,
+	}
+	out := stripAnsi(renderRecordDetail(rec, 0, false))
+	if !strings.Contains(out, "timestamp") {
+		t.Errorf("expected timestamp in full output: %q", out)
+	}
+}
+
+func TestRecordHasStructuredMsg(t *testing.T) {
+	if !recordHasStructuredMsg(map[string]any{"msg": `{"a":1}`}) {
+		t.Errorf("expected true for stringified-JSON msg")
+	}
+	if !recordHasStructuredMsg(map[string]any{"msg": map[string]any{"a": 1}}) {
+		t.Errorf("expected true for object msg")
+	}
+	if recordHasStructuredMsg(map[string]any{"msg": "plain"}) {
+		t.Errorf("expected false for scalar msg")
+	}
+	if recordHasStructuredMsg(map[string]any{"other": 1}) {
+		t.Errorf("expected false when msg key absent")
+	}
+}
+
 func TestRenderRecordDetailWrapsLongLines(t *testing.T) {
 	rec := map[string]any{
 		"long": strings.Repeat("x", 200),
 	}
 	const width = 40
-	out := renderRecordDetail(rec, width)
+	out := renderRecordDetail(rec, width, false)
 	// Strip ANSI before measuring so chroma's color codes don't inflate widths.
 	for _, line := range strings.Split(out, "\n") {
 		if w := lipglossWidth(line); w > width {

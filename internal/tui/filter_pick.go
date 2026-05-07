@@ -464,6 +464,10 @@ func (m Model) insertFilterIntoEditor(fragment string) Model {
 	m.currentView = viewQuery
 	m.focus = focusEditor
 	m.editor.Focus()
+	if m.detailFullscreen {
+		m.detailFullscreen = false
+		m.applyLayout()
+	}
 	m.infoMsg = "inserted fragment"
 	m.state = stateIdle
 	return m

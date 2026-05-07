@@ -81,11 +81,38 @@ func highlightJSON(s string) string {
 // record for the detail viewport. When width > 0 the output is hard-wrapped
 // to that width so long values stay visible without horizontal scroll. ANSI
 // escapes from chroma are preserved across the wrap.
-func renderRecordDetail(rec map[string]any, width int) string {
+//
+// When `simplified` is true and the expanded record carries a structured `msg`
+// value, only that value is rendered — the rest of the record (timestamps,
+// host attributes, etc.) is hidden so the user can focus on the payload.
+// Falls back to the full record when there's no structured msg.
+func renderRecordDetail(rec map[string]any, width int, simplified bool) string {
 	expanded := expandJSONStrings(rec)
-	pretty, err := json.MarshalIndent(expanded, "", "  ")
+	if simplified {
+		if expandedMap, ok := expanded.(map[string]any); ok {
+			if msg, has := expandedMap["msg"]; has && isStructured(msg) {
+				return renderJSONValue(msg, width)
+			}
+		}
+	}
+	return renderJSONValue(expanded, width)
+}
+
+// recordHasStructuredMsg reports whether the simplified rendering would kick
+// in for rec. Used by the title bar to label the pane accurately.
+func recordHasStructuredMsg(rec map[string]any) bool {
+	expanded := expandJSONStrings(rec)
+	expandedMap, ok := expanded.(map[string]any)
+	if !ok {
+		return false
+	}
+	msg, has := expandedMap["msg"]
+	return has && isStructured(msg)
+}
+
+func renderJSONValue(v any, width int) string {
+	pretty, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		// shouldn't happen — Grail returns a JSON-serializable map
 		return err.Error()
 	}
 	out := highlightJSON(string(pretty))
@@ -93,6 +120,16 @@ func renderRecordDetail(rec map[string]any, width int) string {
 		out = ansi.Hardwrap(out, width, false)
 	}
 	return out
+}
+
+// isStructured reports whether v is a JSON object or array — i.e. has nested
+// shape worth viewing on its own.
+func isStructured(v any) bool {
+	switch v.(type) {
+	case map[string]any, []any:
+		return true
+	}
+	return false
 }
 
 // highlightJSONCell returns s with chroma highlighting if it parses as a JSON

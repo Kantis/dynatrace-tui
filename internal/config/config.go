@@ -24,6 +24,11 @@ type Loaded struct {
 	Names    []string // ordered as in the file
 	Selected string   // resolved selection (CLI flag → `default:` → first)
 	VimMode  bool     // top-level `vim_mode:` — opt-in vim modal editor
+	// SimplifiedPreviews controls whether the detail pane defaults to showing
+	// only the `msg` payload when the selected record carries a structured
+	// one. True (the default) enables the simplification; users who prefer
+	// to always see every field can set `simplified_preview: false`.
+	SimplifiedPreviews bool
 	// Time-picker preset lists. nil means "unset, use built-in defaults";
 	// a non-nil (possibly empty) slice means "use exactly this list".
 	TimePickerFrom []string
@@ -50,8 +55,9 @@ type fileShape struct {
 	Default      string    `yaml:"default"`
 
 	// Top-level UI prefs (env-independent).
-	VimMode    bool             `yaml:"vim_mode"`
-	TimePicker timePickerConfig `yaml:"time_picker"`
+	VimMode           bool             `yaml:"vim_mode"`
+	SimplifiedPreview *bool            `yaml:"simplified_preview"`
+	TimePicker        timePickerConfig `yaml:"time_picker"`
 
 	// Legacy single-environment shape — synthesised into a single env named
 	// "default" when `environments` is absent.
@@ -103,13 +109,18 @@ func Load(path, selectedEnv string) (*Loaded, error) {
 		specs = map[string]envSpec{"default": spec}
 	}
 
+	simplified := true
+	if f.SimplifiedPreview != nil {
+		simplified = *f.SimplifiedPreview
+	}
 	loaded := &Loaded{
-		Path:           path,
-		Names:          names,
-		VimMode:        f.VimMode,
-		TimePickerFrom: f.TimePicker.From,
-		TimePickerTo:   f.TimePicker.To,
-		specs:          specs,
+		Path:               path,
+		Names:              names,
+		VimMode:            f.VimMode,
+		SimplifiedPreviews: simplified,
+		TimePickerFrom:     f.TimePicker.From,
+		TimePickerTo:       f.TimePicker.To,
+		specs:              specs,
 	}
 
 	pick := selectedEnv

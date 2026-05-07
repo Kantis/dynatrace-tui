@@ -83,6 +83,18 @@ type Model struct {
 	currentRecord  map[string]any // record currently shown in the detail viewport, kept so layout changes can re-wrap
 	detailPendingG bool           // vim `gg` in the detail viewport
 
+	// Detail rendering mode. simplifiedPreviews is config-driven (off => never
+	// hide the rest of the record); detailFull is the user's Alt-D toggle.
+	// The active mode is "simplified" iff simplifiedPreviews && !detailFull
+	// && the selected record has a structured `msg`.
+	simplifiedPreviews bool
+	detailFull         bool
+
+	// detailFullscreen makes the detail pane take over the entire area below
+	// the tabs row when set. Triggered by Enter on a result row; cleared by
+	// Esc/q or any focus change. Only honored while focus == focusDetail.
+	detailFullscreen bool
+
 	// Chart-view nudge: from/to staged by the user but not yet re-run. Zero
 	// means "no pending value for that endpoint". Cleared whenever the chart
 	// successfully re-runs.
@@ -158,7 +170,7 @@ type Model struct {
 	resolveFocus  int
 }
 
-func New(client *grail.Client, envName string, envNames []string, makeClient func(string) (*grail.Client, error), vimMode bool, timePickerFrom, timePickerTo []string) Model {
+func New(client *grail.Client, envName string, envNames []string, makeClient func(string) (*grail.Client, error), vimMode bool, simplifiedPreviews bool, timePickerFrom, timePickerTo []string) Model {
 	ed := NewEditor(vimMode)
 	ed.SetValue("from:now()-15m")
 
@@ -179,7 +191,7 @@ func New(client *grail.Client, envName string, envNames []string, makeClient fun
 	editBody := NewEditor(vimMode)
 	editBody.Blur()
 
-	infoMsg := "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Alt-2 saved · Alt-3 fragments · Ctrl-F insert fragment · Ctrl-S save · Ctrl-P params · Ctrl-X export · Ctrl-E env · q quit"
+	infoMsg := "ready — Alt-Enter run · Ctrl-G chart · Ctrl-T timerange · Alt-2 saved · Alt-3 fragments · Ctrl-F insert fragment · Ctrl-S save · Ctrl-P params · Ctrl-X export · Ctrl-E env · Alt-D detail mode · q quit"
 	autoRun := false
 	// If a default saved search exists and resolves to a non-empty body,
 	// preload the editor with it and queue an auto-run for after Init().
@@ -202,6 +214,7 @@ func New(client *grail.Client, envName string, envNames []string, makeClient fun
 		envName:             envName,
 		envNames:            envNames,
 		makeClient:          makeClient,
+		simplifiedPreviews:  simplifiedPreviews,
 		timePickerFromSpecs: timePickerFrom,
 		timePickerToSpecs:   timePickerTo,
 		focus:               focusEditor,
@@ -469,10 +482,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case "alt+d":
+		return m.toggleDetailFull(), nil
 	case "esc":
 		if m.focus == focusDetail {
-			m.focus = focusResults
-			return m, nil
+			return m.leaveDetail(), nil
 		}
 		if m.state == stateRunning {
 			return m.cancelRunning(), nil
@@ -509,8 +523,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.prevDetailMatch(), nil
 		case "q":
 			m.detailPendingG = false
-			m.focus = focusResults
-			return m, nil
+			return m.leaveDetail(), nil
 		case "G":
 			m.detailPendingG = false
 			m.detail.GotoBottom()
@@ -533,9 +546,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// Enter in results: open detail
+	// Enter in results: expand the detail pane fullscreen.
 	if m.focus == focusResults && msg.String() == "enter" && len(m.records) > 0 {
-		m.openDetail()
+		m.focus = focusDetail
+		m.table.Blur()
+		m.detailFullscreen = true
+		m.applyLayout()
 		return m, nil
 	}
 
@@ -548,7 +564,11 @@ func (m Model) routeToFocus(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case focusEditor:
 		m.editor, cmd = m.editor.Update(msg)
 	case focusResults:
+		prev := m.table.Cursor()
 		m.table, cmd = m.table.Update(msg)
+		if m.table.Cursor() != prev {
+			m.refreshDetailPreview()
+		}
 	case focusDetail:
 		m.detail, cmd = m.detail.Update(msg)
 	}
@@ -556,11 +576,7 @@ func (m Model) routeToFocus(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) cycleFocus(reverse bool) Model {
-	order := []focus{focusEditor, focusResults}
-	if len(m.records) > 0 && m.focus == focusDetail {
-		// keep detail in cycle if we're already in it
-		order = []focus{focusEditor, focusResults, focusDetail}
-	}
+	order := []focus{focusEditor, focusResults, focusDetail}
 	idx := 0
 	for i, f := range order {
 		if f == m.focus {
@@ -573,6 +589,7 @@ func (m Model) cycleFocus(reverse bool) Model {
 	} else {
 		idx = (idx + 1) % len(order)
 	}
+	prev := m.focus
 	m.focus = order[idx]
 	switch m.focus {
 	case focusEditor:
@@ -584,6 +601,26 @@ func (m Model) cycleFocus(reverse bool) Model {
 	case focusDetail:
 		m.editor.Blur()
 		m.table.Blur()
+	}
+	// Cycling away from a fullscreen detail drops back to the split layout
+	// so the editor and results table become visible again.
+	if prev == focusDetail && m.detailFullscreen {
+		m.detailFullscreen = false
+		m.applyLayout()
+	}
+	return m
+}
+
+// leaveDetail returns focus to the results table and tears down the
+// fullscreen-detail layout if it was active. Centralises the Esc/q teardown
+// so both keys behave identically.
+func (m Model) leaveDetail() Model {
+	m.focus = focusResults
+	m.editor.Blur()
+	m.table.Focus()
+	if m.detailFullscreen {
+		m.detailFullscreen = false
+		m.applyLayout()
 	}
 	return m
 }
@@ -674,24 +711,32 @@ func (m Model) applyResult(resp *grail.Response) (Model, tea.Cmd) {
 			m.records = nil
 			m.recordOrder = nil
 			m.rowCount = 0
+			m.detailFullscreen = false
 			m.populateTable()
 			m.detailKind = detailChart
 			m.chartFocusEndpoint = nudgeFrom
 			m.chartFocusBlinkOn = true
+			m.applyLayout()
 			m.setDetailContent(renderChart(records, m.detail.Width, m.detail.Height,
 				m.chartPendingFrom, m.chartPendingTo, m.chartFocusEndpoint, m.chartFocusBlinkOn))
 			m.detail.GotoTop()
 			m.focus = focusDetail
 			m.editor.Blur()
 			m.table.Blur()
-			m.infoMsg = "chart ready — Tab switch · h/m/s/d nudge · Enter run · Esc close"
+			m.infoMsg = "chart ready — Tab switch · h/m/s/d nudge · Enter run · Esc back"
 			return m, nil
 		}
 		m.records = records
 		m.recordOrder = order
 		m.rowCount = len(m.records)
 		m.infoMsg = fmt.Sprintf("%d records", m.rowCount)
+		m.detailKind = detailRecord
+		if m.detailFullscreen {
+			m.detailFullscreen = false
+			m.applyLayout()
+		}
 		m.populateTable()
+		m.refreshDetailPreview()
 		if m.rowCount > 0 && !silent {
 			m.focus = focusResults
 			m.editor.Blur()
@@ -757,8 +802,17 @@ func (m *Model) populateTable() {
 	m.table.SetRows(rows)
 }
 
-func (m *Model) openDetail() {
+// refreshDetailPreview points the always-visible detail viewport at the
+// currently selected record. Called whenever the table cursor moves or new
+// results land; no-ops while the chart is taking the pane over.
+func (m *Model) refreshDetailPreview() {
+	if m.detailKind == detailChart {
+		return
+	}
 	if len(m.records) == 0 {
+		m.currentRecord = nil
+		m.setDetailContent("")
+		m.detail.GotoTop()
 		return
 	}
 	cur := m.table.Cursor()
@@ -766,11 +820,56 @@ func (m *Model) openDetail() {
 		cur = 0
 	}
 	rec := m.records[cur]
-	m.detailKind = detailRecord
 	m.currentRecord = rec
-	m.setDetailContent(renderRecordDetail(rec, m.detail.Width))
+	m.setDetailContent(renderRecordDetail(rec, m.detail.Width, m.detailSimplified()))
 	m.detail.GotoTop()
-	m.focus = focusDetail
+}
+
+// toggleDetailFull flips the user's preference between simplified-when-possible
+// and full. No-op (besides flipping the field) when the chart is showing or
+// when the config has disabled simplified previews entirely — the rendered
+// output won't change in those cases, but the next eligible record will pick
+// up the new preference.
+func (m Model) toggleDetailFull() Model {
+	m.detailFull = !m.detailFull
+	if m.detailKind == detailRecord && m.currentRecord != nil {
+		m.setDetailContent(renderRecordDetail(m.currentRecord, m.detail.Width, m.detailSimplified()))
+		m.detail.GotoTop()
+	}
+	return m
+}
+
+// detailSimplified is true when the next render of the record-detail pane
+// should hide non-msg fields. Combines the config flag, the user's toggle,
+// and the shape of the currently selected record — the rendering can only
+// honour simplified mode when the record actually has a structured msg.
+func (m Model) detailSimplified() bool {
+	if !m.detailModeSimplified() {
+		return false
+	}
+	if m.currentRecord == nil {
+		return false
+	}
+	return recordHasStructuredMsg(m.currentRecord)
+}
+
+// detailModeSimplified reports the user's current mode preference, ignoring
+// whether the active record actually allows simplification. Drives the title
+// so the header is stable across rows: a user in simplified mode keeps seeing
+// "Details (simplified)" even on records that have no msg to trim.
+func (m Model) detailModeSimplified() bool {
+	return m.simplifiedPreviews && !m.detailFull
+}
+
+// detailPaneTitle is the header rendered above the detail viewport.
+func (m Model) detailPaneTitle() string {
+	if m.detailKind == detailChart {
+		return "Chart"
+	}
+	if m.detailModeSimplified() {
+		return "Details (simplified)"
+	}
+	return "Details (full)"
 }
 
 // Layout
@@ -782,27 +881,51 @@ func (m *Model) applyLayout() {
 	editorH := 8
 	statusH := 1
 	tabsH := 1
-	// Subtractions account for: tabs row (tabsH), editor inner (editorH),
-	// status bar (statusH), 1 pane title (results — the editor's title
-	// moved to the tabs row), and 4 border lines (top+bottom of each pane).
-	resultsH := m.height - tabsH - editorH - statusH - 1 - 4
-	if resultsH < 5 {
-		resultsH = 5
-	}
 	innerW := m.width - 2
 	if innerW < 20 {
 		innerW = 20
 	}
+
+	// Keep the off-screen widgets sized so they don't blow up the next time
+	// the user cycles back to them.
 	m.editor.SetWidth(innerW)
 	m.editor.SetHeight(editorH)
-	m.table.SetWidth(innerW)
-	m.table.SetHeight(resultsH)
-	m.detail.Width = innerW
-	m.detail.Height = resultsH
 	m.savedEditBody.SetWidth(innerW)
 	m.savedEditBody.SetHeight(editorH)
 	if m.filtersMode == filtersModeEditing {
 		m.layoutFilterEdit(innerW)
+	}
+
+	if m.detailFullscreenActive() {
+		// Chrome: tabs row, status bar, detail title, 2 border lines.
+		detailH := m.height - tabsH - statusH - 1 - 2
+		if detailH < 1 {
+			detailH = 1
+		}
+		m.table.SetWidth(innerW)
+		m.table.SetHeight(1) // hidden, but keep it valid
+		m.detail.Width = innerW
+		m.detail.Height = detailH
+	} else {
+		// Chrome below the editor: tabs row, editor inner, status bar, 2 pane
+		// titles (results, detail), and 6 border lines (top+bottom of editor,
+		// results, and detail panes).
+		remaining := m.height - tabsH - editorH - statusH - 2 - 6
+		if remaining < 2 {
+			remaining = 2
+		}
+		resultsH := remaining / 2
+		detailH := remaining - resultsH
+		if resultsH < 1 {
+			resultsH = 1
+		}
+		if detailH < 1 {
+			detailH = 1
+		}
+		m.table.SetWidth(innerW)
+		m.table.SetHeight(resultsH)
+		m.detail.Width = innerW
+		m.detail.Height = detailH
 	}
 	m.populateTable()
 	if m.detailKind == detailChart && len(m.chartRecords) > 0 {
@@ -810,8 +933,15 @@ func (m *Model) applyLayout() {
 			m.chartPendingFrom, m.chartPendingTo, m.chartFocusEndpoint, m.chartFocusBlinkOn))
 	}
 	if m.detailKind == detailRecord && m.currentRecord != nil {
-		m.setDetailContent(renderRecordDetail(m.currentRecord, m.detail.Width))
+		m.setDetailContent(renderRecordDetail(m.currentRecord, m.detail.Width, m.detailSimplified()))
 	}
+}
+
+// detailFullscreenActive reports whether the detail pane should take over the
+// whole screen on this render. The flag is only honored when focus is on the
+// detail pane — losing focus implicitly drops back to the split layout.
+func (m Model) detailFullscreenActive() bool {
+	return m.detailFullscreen && m.focus == focusDetail
 }
 
 // View rendering
@@ -852,33 +982,40 @@ func (m Model) View() string {
 	var sections []string
 	sections = append(sections, m.renderTabs())
 
+	if m.detailFullscreenActive() {
+		sections = append(sections, paneTitleFocused.Render(m.detailPaneTitle()))
+		sections = append(sections, paneBorderFocused.Render(m.detail.View()))
+		sections = append(sections, m.statusLine())
+		return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	}
+
 	editorBorder := paneBorder
 	if m.focus == focusEditor {
 		editorBorder = paneBorderFocused
 	}
 	sections = append(sections, editorBorder.Render(m.editor.View()))
 
-	if m.focus == focusDetail {
-		title := "Detail (Esc to close)"
-		if m.detailKind == detailChart {
-			title = "Chart (Esc to close)"
-		}
-		sections = append(sections, paneTitleFocused.Render(title))
-		sections = append(sections, paneBorderFocused.Render(m.detail.View()))
-	} else {
-		title := "Results"
-		if m.rowCount > 0 {
-			title = fmt.Sprintf("Results (%d)", m.rowCount)
-		}
-		border := paneBorder
-		titleStyle := paneTitle
-		if m.focus == focusResults {
-			border = paneBorderFocused
-			titleStyle = paneTitleFocused
-		}
-		sections = append(sections, titleStyle.Render(title))
-		sections = append(sections, border.Render(m.table.View()))
+	resultsTitle := "Results"
+	if m.rowCount > 0 {
+		resultsTitle = fmt.Sprintf("Results (%d)", m.rowCount)
 	}
+	resultsBorder := paneBorder
+	resultsTitleStyle := paneTitle
+	if m.focus == focusResults {
+		resultsBorder = paneBorderFocused
+		resultsTitleStyle = paneTitleFocused
+	}
+	sections = append(sections, resultsTitleStyle.Render(resultsTitle))
+	sections = append(sections, resultsBorder.Render(m.table.View()))
+
+	detailBorder := paneBorder
+	detailTitleStyle := paneTitle
+	if m.focus == focusDetail {
+		detailBorder = paneBorderFocused
+		detailTitleStyle = paneTitleFocused
+	}
+	sections = append(sections, detailTitleStyle.Render(m.detailPaneTitle()))
+	sections = append(sections, detailBorder.Render(m.detail.View()))
 
 	sections = append(sections, m.statusLine())
 
@@ -969,7 +1106,7 @@ func (m Model) statusLine() string {
 		if s := m.detailSearchStatus(); s != "" {
 			right = s
 		} else {
-			right = "/ search · gg/G top/bottom · q close"
+			right = "/ search · gg/G top/bottom · q back"
 		}
 	}
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2

@@ -18,7 +18,7 @@ func TestViewFitsHeight(t *testing.T) {
 		{100, 40},
 	}
 	for _, tc := range cases {
-		m := New(nil, "", nil, nil, false, nil, nil)
+		m := New(nil, "", nil, nil, false, true, nil, nil)
 		m, _ = applyMsg(m, tea.WindowSizeMsg{Width: tc.w, Height: tc.h})
 		out := m.View()
 		lines := strings.Count(out, "\n") + 1
@@ -33,13 +33,42 @@ func applyMsg(m Model, msg tea.Msg) (Model, tea.Cmd) {
 	return tm.(Model), cmd
 }
 
+// TestFullscreenDetailFitsHeight asserts the fullscreen detail layout doesn't
+// overflow the terminal — the chrome math (tabs + title + borders + status)
+// has to leave room for the viewport. Mirrors TestViewFitsHeight, which only
+// covers the split layout.
+func TestFullscreenDetailFitsHeight(t *testing.T) {
+	cases := []struct{ w, h int }{
+		{80, 24},
+		{120, 30},
+		{100, 40},
+	}
+	for _, tc := range cases {
+		m := New(nil, "", nil, nil, false, true, nil, nil)
+		m, _ = applyMsg(m, tea.WindowSizeMsg{Width: tc.w, Height: tc.h})
+		// Fake a record + fullscreen flag, then re-layout so the viewport
+		// picks up the new dimensions.
+		m.records = []map[string]any{{"timestamp": "t", "msg": "hi"}}
+		m.populateTable()
+		m.refreshDetailPreview()
+		m.focus = focusDetail
+		m.detailFullscreen = true
+		m.applyLayout()
+		out := m.View()
+		lines := strings.Count(out, "\n") + 1
+		if lines > tc.h {
+			t.Errorf("fullscreen View() at %dx%d emitted %d lines, want ≤ %d", tc.w, tc.h, lines, tc.h)
+		}
+	}
+}
+
 // TestPopulateTableHandlesEmptyAfterPopulated reproduces the panic that
 // happened when a query returning zero records followed a query that
 // returned records: the table still held the populated rows when SetColumns
 // installed the placeholder "(empty)" column, and bubbles/table indexed
 // past it.
 func TestPopulateTableHandlesEmptyAfterPopulated(t *testing.T) {
-	m := New(nil, "", nil, nil, false, nil, nil)
+	m := New(nil, "", nil, nil, false, true, nil, nil)
 	m, _ = applyMsg(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	// First "query": multiple records with multiple fields → multi-column table.

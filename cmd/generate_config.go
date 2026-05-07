@@ -78,6 +78,12 @@ environments:
 # Optional. Enables the vim-style modal query editor. Off by default.
 # vim_mode: true
 
+# Optional. When the selected record carries a structured 'msg' field, the
+# detail pane defaults to showing only that payload (header reads
+# "Details (simplified)"). Toggle full / simplified at runtime with Alt-D.
+# Set to false to always render the full record.
+# simplified_preview: true
+
 # Optional. Override the Ctrl-T time-range preset lists. Omit the block
 # (or either inner list) to use the built-in defaults. Each entry is
 # either a now()-<duration> relative offset, a literal datetime, or one

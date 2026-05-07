@@ -66,6 +66,39 @@ environments:
 	}
 }
 
+func TestLoadSimplifiedPreviewDefaultsTrue(t *testing.T) {
+	path := writeConfig(t, `
+environments:
+  default:
+    environment_id: abc123
+    platform_token: secret
+`)
+	loaded, err := Load(path, "")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !loaded.SimplifiedPreviews {
+		t.Errorf("SimplifiedPreviews = false, want true (default)")
+	}
+}
+
+func TestLoadSimplifiedPreviewDisabled(t *testing.T) {
+	path := writeConfig(t, `
+environments:
+  default:
+    environment_id: abc123
+    platform_token: secret
+simplified_preview: false
+`)
+	loaded, err := Load(path, "")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.SimplifiedPreviews {
+		t.Errorf("SimplifiedPreviews = true, want false")
+	}
+}
+
 func TestLoadTimePickerExplicitEmpty(t *testing.T) {
 	// Explicit `from: []` is preserved as an empty (non-nil) slice so the
 	// consumer can render an empty list rather than falling back to defaults.

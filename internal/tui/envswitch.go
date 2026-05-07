@@ -49,10 +49,15 @@ func (m Model) updateSwitchEnv(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.chartRecords = nil
 		m.populateTable()
 		m.detailKind = detailRecord
+		m.currentRecord = nil
 		m.detail.SetContent("")
 		if m.focus == focusDetail {
 			m.focus = focusEditor
 			m.editor.Focus()
+		}
+		if m.detailFullscreen {
+			m.detailFullscreen = false
+			m.applyLayout()
 		}
 		m.modal = modalNone
 		m.errMsg = ""

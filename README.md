@@ -101,7 +101,8 @@ with `fetch ...` (e.g. `fetch events`) or with `|` are handled correctly.
 | `Ctrl-E` | Switch environment (when more than one is configured) |
 | `Ctrl-X` | Export results as JSON or CSV (all rows or current row) |
 | `Ctrl-R` | Redo (vim-style) — pairs with `u` for undo in normal mode |
-| `q` | Close detail view, or quit when results are focused |
+| `Alt-D` | Toggle the detail pane between **simplified** (msg only) and **full** |
+| `q` | Return to results from the detail view, or quit when results are focused |
 | `Ctrl-C` | Cancel running query, or quit when idle |
 
 \* Most terminals don't distinguish `Ctrl-Enter` from plain `Enter`
@@ -143,15 +144,23 @@ want them.
 
 ### Detail view
 
-`Enter` on a result row opens its formatted JSON (or, after `Ctrl-G`, the
-chart) in a scrollable pane. While the detail pane is focused:
+The detail pane sits below the results table and previews whichever row is
+selected. **Enter** on a result row expands the detail pane fullscreen
+(hiding the editor and table); **Tab** hands it focus without expanding.
+While the detail pane is focused:
 
 | Key | Action |
 | --- | --- |
 | `↑` `↓` / `j` `k` / `PgUp` `PgDn` | Scroll |
 | `gg` | Jump to top |
 | `G` | Jump to bottom |
-| `q` / `Esc` | Close and return to results |
+| `q` / `Esc` | Return to results (also collapses fullscreen) |
+
+When the selected record carries a structured `msg` field (object or
+array), the pane defaults to showing only that payload — the header
+reads **Details (simplified)**. Press `Alt-D` (works from anywhere) to
+toggle to **Details (full)**, which prints every field. Disable the
+default simplification with `simplified_preview: false` in the config.
 
 ### Saved Searches view
 
@@ -244,6 +253,12 @@ default: PROD
 # Optional. Enables the vim-style modal query editor. Off by default —
 # when off the editor is a plain textarea.
 vim_mode: true
+
+# Optional. When the selected record carries a structured `msg` field, the
+# detail pane defaults to showing only that payload. Toggle full /
+# simplified at runtime with `Alt-D`. Set to false to always render the
+# full record. Defaults to true.
+simplified_preview: true
 
 # Optional. Override the Ctrl-T preset lists. When the block (or either
 # inner list) is omitted, the built-in defaults are used. Each entry is
